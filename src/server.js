@@ -83,21 +83,19 @@ async function initApprovalTimeline(planId, teacherName, currentStage = 'dept_he
   const steps = [
     { order: 1, key: 'dept_head', title: `1. หัวหน้ากลุ่มสาระ${roundLabel}`, role: 'หัวหน้ากลุ่มสาระฯ' },
     { order: 2, key: 'curriculum_head', title: `2. หัวหน้างานหลักสูตร${roundLabel}`, role: 'หัวหน้างานหลักสูตร' },
-    { order: 3, key: 'academic_head', title: `3. หัวหน้ากลุ่มบริหารวิชาการ${roundLabel}`, role: 'หัวหน้ากลุ่มบริหารวิชาการ' },
-    { order: 4, key: 'academic_director', title: `4. รองผู้อำนวยการฝ่ายวิชาการ${roundLabel}`, role: 'รองผู้อำนวยการฝ่ายวิชาการ' },
-    { order: 5, key: 'director', title: `5. ผู้อำนวยการ${roundLabel}`, role: 'ผู้อำนวยการโรงเรียน' }
+    { order: 3, key: 'academic_director', title: `3. รองผู้อำนวยการฝ่ายวิชาการ${roundLabel}`, role: 'รองผู้อำนวยการฝ่ายวิชาการ' },
+    { order: 4, key: 'director', title: `4. ผู้อำนวยการ${roundLabel}`, role: 'ผู้อำนวยการโรงเรียน' }
   ];
 
   const stageOrderMap = {
     dept_head: 1,
     curriculum_head: 2,
-    academic_head: 3,
-    academic_director: 4,
-    director: 5,
-    completed: 6
+    academic_director: 3,
+    director: 4,
+    completed: 5
   };
 
-  const activeOrder = submissionStatus === 'approved' ? 6 : (stageOrderMap[currentStage] || 1);
+  const activeOrder = submissionStatus === 'approved' ? 5 : (stageOrderMap[currentStage] || 1);
 
   for (const s of steps) {
     let status = 'waiting';
@@ -1538,7 +1536,7 @@ app.post('/api/admin/plans/:id/step-review', async (req, res) => {
         return res.json({ success: true, message: `ลงความเห็นชอบครั้งที่ ${targetRound} เรียบร้อย ส่งต่อหัวหน้างานหลักสูตร`, nextStage: 'curriculum_head', round: targetRound });
 
       } else if (currentStage === 'curriculum_head') {
-        // Advance to Level 3: หัวหน้ากลุ่มบริหารวิชาการ (academic_head)
+        // Advance to Level 3: รองผู้อำนวยการฝ่ายวิชาการ (academic_director)
         await db.execute(
           `UPDATE approval_timeline 
            SET status = 'completed', reviewer_name = ?, reviewer_role = ?, feedback = ?, action_at = ?, reviewer_signature = ? 
@@ -1548,14 +1546,14 @@ app.post('/api/admin/plans/:id/step-review', async (req, res) => {
         await db.execute(
           `UPDATE approval_timeline 
            SET status = 'in_progress' 
-           WHERE lesson_plan_id = ? AND stage_key = 'academic_head' AND ${roundTimelineCondition}`,
+           WHERE lesson_plan_id = ? AND stage_key = 'academic_director' AND ${roundTimelineCondition}`,
           [id]
         );
 
         if (targetRound === 2) {
           await db.execute(
             `UPDATE lesson_plans 
-             SET round_2_stage = 'academic_head', 
+             SET round_2_stage = 'academic_director', 
                  round_2_status = 'under_review',
                  current_round = 2,
                  updated_at = CURRENT_TIMESTAMP 
@@ -1565,8 +1563,8 @@ app.post('/api/admin/plans/:id/step-review', async (req, res) => {
         } else {
           await db.execute(
             `UPDATE lesson_plans 
-             SET current_stage = 'academic_head', 
-                 current_reviewer_title = 'หัวหน้ากลุ่มบริหารวิชาการ',
+             SET current_stage = 'academic_director', 
+                 current_reviewer_title = 'รองผู้อำนวยการฝ่ายวิชาการ',
                  submission_status = 'under_review',
                  reviewer_feedback = ?,
                  reviewed_by = ?,
@@ -1599,14 +1597,14 @@ app.post('/api/admin/plans/:id/step-review', async (req, res) => {
         } catch (pdfErr) {
           console.warn(`[StepReview] Stamp curriculum_head signature error (Round ${targetRound}):`, pdfErr.message);
         }
-        return res.json({ success: true, message: `ผ่านการตรวจสอบงานหลักสูตร ครั้งที่ ${targetRound} ส่งต่อหัวหน้ากลุ่มบริหารวิชาการ`, nextStage: 'academic_head', round: targetRound });
+        return res.json({ success: true, message: `ผ่านการตรวจสอบงานหลักสูตร ครั้งที่ ${targetRound} ส่งต่อรองผู้อำนวยการฝ่ายวิชาการ`, nextStage: 'academic_director', round: targetRound });
 
       } else if (currentStage === 'academic_head') {
         // Advance to Level 4: รองผู้อำนวยการฝ่ายวิชาการ (academic_director)
         await db.execute(
           `UPDATE approval_timeline 
            SET status = 'completed', reviewer_name = ?, reviewer_role = ?, feedback = ?, action_at = ?, reviewer_signature = ? 
-           WHERE lesson_plan_id = ? AND stage_key = 'academic_head' AND ${roundTimelineCondition}`,
+           WHERE lesson_plan_id = ? AND stage_key = 'academic_director' AND ${roundTimelineCondition}`,
           [reviewer_name || 'หัวหน้ากลุ่มบริหารวิชาการ', reviewer_role || 'หัวหน้ากลุ่มบริหารวิชาการ', defaultFeedback, now, reviewer_signature || null, id]
         );
         await db.execute(

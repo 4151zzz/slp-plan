@@ -127,21 +127,19 @@ function init_approval_timeline($pdo, $planId, $teacherName, $currentStage = 'de
     $steps = [
         ['order' => 1, 'key' => 'dept_head', 'title' => "1. หัวหน้ากลุ่มสาระ{$roundLabel}", 'role' => 'หัวหน้ากลุ่มสาระฯ'],
         ['order' => 2, 'key' => 'curriculum_head', 'title' => "2. หัวหน้างานหลักสูตร{$roundLabel}", 'role' => 'หัวหน้างานหลักสูตร'],
-        ['order' => 3, 'key' => 'academic_head', 'title' => "3. หัวหน้ากลุ่มบริหารวิชาการ{$roundLabel}", 'role' => 'หัวหน้ากลุ่มบริหารวิชาการ'],
-        ['order' => 4, 'key' => 'academic_director', 'title' => "4. รองผู้อำนวยการฝ่ายวิชาการ{$roundLabel}", 'role' => 'รองผู้อำนวยการฝ่ายวิชาการ'],
-        ['order' => 5, 'key' => 'director', 'title' => "5. ผู้อำนวยการ{$roundLabel}", 'role' => 'ผู้อำนวยการโรงเรียน']
+        ['order' => 3, 'key' => 'academic_director', 'title' => "3. รองผู้อำนวยการฝ่ายวิชาการ{$roundLabel}", 'role' => 'รองผู้อำนวยการฝ่ายวิชาการ'],
+        ['order' => 4, 'key' => 'director', 'title' => "4. ผู้อำนวยการ{$roundLabel}", 'role' => 'ผู้อำนวยการโรงเรียน']
     ];
 
     $stageOrderMap = [
         'dept_head' => 1,
         'curriculum_head' => 2,
-        'academic_head' => 3,
-        'academic_director' => 4,
-        'director' => 5,
-        'completed' => 6
+        'academic_director' => 3,
+        'director' => 4,
+        'completed' => 5
     ];
 
-    $activeOrder = $submissionStatus === 'approved' ? 6 : ($stageOrderMap[$currentStage] ?? 1);
+    $activeOrder = $submissionStatus === 'approved' ? 5 : ($stageOrderMap[$currentStage] ?? 1);
 
     foreach ($steps as $s) {
         $status = 'waiting';
@@ -873,15 +871,13 @@ if ($method === 'POST' && preg_match('#^/admin/plans/([^/]+)/step-review$#', $pa
 
     $nextStageMap = [
         'dept_head' => 'curriculum_head',
-        'curriculum_head' => 'academic_head',
-        'academic_head' => 'academic_director',
+        'curriculum_head' => 'academic_director',
         'academic_director' => 'director',
         'director' => 'completed'
     ];
 
     $titleMap = [
         'curriculum_head' => 'หัวหน้างานหลักสูตร',
-        'academic_head' => 'หัวหน้ากลุ่มบริหารวิชาการ',
         'academic_director' => 'รองผู้อำนวยการฝ่ายวิชาการ',
         'director' => 'ผู้อำนวยการโรงเรียน',
         'completed' => 'อนุมัติเรียบร้อย'
