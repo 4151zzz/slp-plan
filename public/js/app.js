@@ -129,23 +129,28 @@ function updateUserUI() {
     roleDisplay.title = currentUser.position_title || displayRole;
   }
 
-  // Show Admin Console link for admin and executive roles
-  const canAccessAdmin = ['admin', 'director', 'academic_director', 'academic_head', 'curriculum_head'].includes(currentUser.role);
+  // Show Admin Console link for admin and reviewer roles
+  const canAccessAdmin = ['admin', 'director', 'academic_director', 'academic_head', 'curriculum_head', 'dept_head'].includes(currentUser.role);
   if (navAdminBtn) navAdminBtn.style.display = canAccessAdmin ? 'inline-flex' : 'none';
   if (profileAdminLink) profileAdminLink.style.display = canAccessAdmin ? 'inline-flex' : 'none';
 
-  // Role-Tailored View (ลดความสับสน แยกมุมมองครูกับผู้ตรวจชัดเจน)
+  // Role-Tailored View:
+  // Roles below academic director can submit their own lesson plans: teacher, dept_head, curriculum_head, academic_head
+  const canSubmitPlan = ['teacher', 'dept_head', 'curriculum_head', 'academic_head', 'admin'].includes(currentUser.role);
+
   const tabBtnAdmin = document.getElementById('tabBtnAdmin');
   const tabBtnSubmit = document.getElementById('tabBtnSubmit');
   const tabBtnTrack = document.getElementById('tabBtnTrack');
 
-  if (currentUser.role === 'teacher') {
-    // ครูผู้สอน: ซ่อนแท็บตรวจแผน ป้องกันความสับสน
-    if (tabBtnAdmin) tabBtnAdmin.style.display = 'none';
-    if (tabBtnSubmit) tabBtnSubmit.style.display = 'inline-flex';
-    if (tabBtnTrack) tabBtnTrack.style.display = 'inline-flex';
+  // Submit and Track tabs are available to all roles that can submit plans
+  if (tabBtnSubmit) tabBtnSubmit.style.display = canSubmitPlan ? 'inline-flex' : 'none';
+  if (tabBtnTrack) tabBtnTrack.style.display = canSubmitPlan ? 'inline-flex' : 'none';
 
-    // Auto-fill teacher form inputs
+  // Admin tab is available to reviewers
+  if (tabBtnAdmin) tabBtnAdmin.style.display = canAccessAdmin ? 'inline-flex' : 'none';
+
+  if (canSubmitPlan) {
+    // Auto-fill teacher form inputs for their own plan submission
     const nameInput = document.getElementById('teacherName');
     const emailInput = document.getElementById('teacherEmail');
     const deptInput = document.getElementById('teacherDepartment');
@@ -167,32 +172,31 @@ function updateUserUI() {
     if (verifiedBanner) verifiedBanner.style.display = 'flex';
     if (vAvatar) vAvatar.textContent = currentUser.avatar || '👨‍🏫';
     if (vName) vName.textContent = currentUser.name;
-    if (vSub) vSub.textContent = `${currentUser.email} • กลุ่มสาระฯ ${currentUser.department || 'ทั่วไป'}`;
+    const roleLabel = currentUser.position_title || getRoleTitle(currentUser.role);
+    if (vSub) vSub.textContent = `${currentUser.email} • ${roleLabel} • กลุ่มสาระฯ ${currentUser.department || 'ทั่วไป'}`;
 
-    // Auto-search personal submission history
+    // Auto-search personal submission history in track tab
     const trackEmail = document.getElementById('trackSearchEmail');
     if (trackEmail) {
       trackEmail.value = currentUser.email;
       searchTeacherHistory(false);
     }
-
-    // By default, stay on submit tab or track tab
-    switchTab('submit');
   } else {
     const verifiedBanner = document.getElementById('verifiedTeacherBanner');
     if (verifiedBanner) verifiedBanner.style.display = 'none';
+  }
 
-    // ผู้ตรวจ (หัวหน้ากลุ่มสาระฯ / ฝ่ายวิชาการ / ผอ.): เปิดแท็บตรวจแผนทันที
-    if (tabBtnAdmin) tabBtnAdmin.style.display = 'inline-flex';
-
+  // Initial tab selection upon login:
+  if (currentUser.role === 'teacher') {
+    switchTab('submit');
+  } else {
+    // Reviewers: switch to admin tab by default, but can easily switch to submit tab to submit their own plan!
     if (currentUser.role === 'dept_head') {
       const adminDept = document.getElementById('adminFilterDept');
       if (adminDept && currentUser.department) {
         adminDept.value = currentUser.department;
       }
     }
-
-    // Switch directly to Reviewer tab in 'my_turn' mode (แสดงเฉพาะขั้นของตนเองเป็นค่าเริ่มต้น)
     switchTab('admin');
     setAdminFilterMode('my_turn');
   }
@@ -1647,18 +1651,55 @@ async function loadAdminPlans() {
       return;
     }
 
+    window.adminPlansCache = json.data;
+
+    const stageTitleMap = {
+      dept_head: 'หัวหน้ากลุ่มสาระการเรียนรู้',
+      curriculum_head: 'หัวหน้างานหลักสูตร',
+      academic_director: 'รองผู้อำนวยการฝ่ายวิชาการ',
+      director: 'ผู้อำนวยการโรงเรียน',
+      completed: 'อนุมัติเรียบร้อย'
+    };
+
     let rows = '';
     json.data.forEach(p => {
       const driveHtml = p.google_drive_view_link 
         ? `<a href="${p.google_drive_view_link}" target="_blank" class="btn-gdrive" title="เปิดดูไฟล์บน Google Drive"><i class="fa-brands fa-google-drive"></i> ดูบนไดรฟ์</a>`
         : '<span style="color: #94a3b8;">-</span>';
 
-      const currentStageName = p.current_reviewer_title || 'หัวหน้ากลุ่มสาระการเรียนรู้';
+      const hasRound2 = (p.current_round === 2 || (p.round_2_status && p.round_2_status !== 'not_started'));
+      const r1Approved = p.submission_status === 'approved';
+      const r2Approved = p.round_2_status === 'approved';
+      const r1Revision = p.submission_status === 'revision_needed';
+      const r2Revision = p.round_2_status === 'revision_needed';
+
+      // Active round for reviewer focus:
+      // If Round 1 is approved and Round 2 has started, focus is Round 2. Otherwise focus is Round 1.
+      const activeRound = (r1Approved && hasRound2) ? 2 : 1;
+      const activeStatus = activeRound === 2 ? (p.round_2_status || 'submitted') : (p.submission_status || 'submitted');
+      const activeStage = activeRound === 2 ? (p.round_2_stage || 'dept_head') : (p.current_stage || 'dept_head');
+      const currentStageName = stageTitleMap[activeStage] || (activeRound === 2 ? 'หัวหน้ากลุ่มสาระการเรียนรู้' : (p.current_reviewer_title || 'หัวหน้ากลุ่มสาระการเรียนรู้'));
+
+      // Check whether it is user's turn for Round 1 and Round 2
+      const isUserTurnR1 = ['submitted', 'under_review'].includes(p.submission_status) && (
+        p.current_stage === currentUser.role || 
+        (currentUser.role === 'admin' && !r1Approved)
+      );
+      const isUserTurnR2 = hasRound2 && ['submitted', 'under_review'].includes(p.round_2_status) && (
+        (p.round_2_stage || 'dept_head') === currentUser.role || 
+        (currentUser.role === 'admin' && !r2Approved)
+      );
+
+      const isUserTurn = activeRound === 2 ? isUserTurnR2 : isUserTurnR1;
 
       // Mini inline timeline tracker for the table row
       let miniTimelineHtml = '<div style="display: flex; gap: 4px; align-items: center; margin-top: 6px;">';
-      if (p.timeline) {
-        p.timeline.forEach((step, idx) => {
+      const activeTimeline = (activeRound === 2 && p.timeline_round_2 && p.timeline_round_2.length > 0)
+        ? p.timeline_round_2
+        : (p.timeline || p.timeline_round_1 || []);
+
+      if (activeTimeline.length > 0) {
+        activeTimeline.forEach((step, idx) => {
           let dotColor = '#cbd5e1';
           let titleText = `${step.stage_title}: รอตามลำดับ`;
           if (step.status === 'completed') {
@@ -1674,37 +1715,37 @@ async function loadAdminPlans() {
 
           miniTimelineHtml += `
             <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${dotColor};" title="${escapeHtml(titleText)}"></span>
-            ${idx < p.timeline.length - 1 ? '<span style="display: inline-block; width: 8px; height: 2px; background: #e2e8f0;"></span>' : ''}
+            ${idx < activeTimeline.length - 1 ? '<span style="display: inline-block; width: 8px; height: 2px; background: #e2e8f0;"></span>' : ''}
           `;
         });
       }
       miniTimelineHtml += '</div>';
 
-      // Precise Action Button Logic:
-      // Is it truly this user's turn right now?
-      const isUserTurn = currentUser && (
-        p.current_stage === currentUser.role || 
-        (currentUser.role === 'admin' && p.submission_status !== 'approved')
-      );
-
+      // Action Button & Badge Logic:
       let actionButtonHtml = '';
-      if (p.submission_status === 'approved') {
-        actionButtonHtml = `<span class="badge badge-approved" style="font-size: 0.8rem; padding: 6px 12px;"><i class="fa-solid fa-circle-check"></i> อนุมัติแล้ว</span>`;
-      } else if (p.submission_status === 'revision_needed') {
-        actionButtonHtml = `<span class="badge badge-revision_needed" style="font-size: 0.8rem; padding: 6px 12px;"><i class="fa-solid fa-rotate-left"></i> ส่งกลับแล้ว</span>`;
+      if (r1Approved && r2Approved) {
+        actionButtonHtml = `<span class="badge badge-approved" style="font-size: 0.8rem; padding: 6px 12px;"><i class="fa-solid fa-circle-check"></i> อนุมัติครบ 2 ครั้ง</span>`;
+      } else if (r1Approved && !hasRound2) {
+        actionButtonHtml = `<span class="badge badge-approved" style="font-size: 0.8rem; padding: 6px 12px;"><i class="fa-solid fa-circle-check"></i> ผ่านครั้งที่ 1 (รอส่งครั้งที่ 2)</span>`;
+      } else if (activeStatus === 'revision_needed') {
+        const roundSuffix = activeRound === 2 ? ' (ครั้งที่ 2)' : ' (ครั้งที่ 1)';
+        actionButtonHtml = `<span class="badge badge-revision_needed" style="font-size: 0.8rem; padding: 6px 12px;"><i class="fa-solid fa-rotate-left"></i> ส่งกลับแล้ว${roundSuffix}</span>`;
       } else if (isUserTurn) {
+        const roundLabel = activeRound === 2 ? 'ครั้งที่ 2' : 'ครั้งที่ 1';
         actionButtonHtml = `
-          <button type="button" class="btn-table-review active-turn" onclick="openStepReviewModal('${p.id}', '${escapeHtml(p.teacher_name)}', '${escapeHtml(p.subject_code)}', '${escapeHtml(p.current_stage || 'dept_head')}', '${escapeHtml(p.current_reviewer_title || 'หัวหน้ากลุ่มสาระการเรียนรู้')}', ${p.current_round || 1})" title="คลิกเพื่อตรวจและลงนาม">
-            <i class="fa-solid fa-signature"></i> ✍️ ตรวจและลงนาม
+          <button type="button" class="btn-table-review active-turn" onclick="openStepReviewModal('${p.id}', ${activeRound})" title="คลิกเพื่อตรวจและลงนาม (${roundLabel})">
+            <i class="fa-solid fa-signature"></i> ✍️ ตรวจและลงนาม (${roundLabel})
           </button>
         `;
       } else {
         const stageShort = currentStageName
           .replace('กลุ่มสาระการเรียนรู้', 'หมวด')
+          .replace('รองผู้อำนวยการฝ่ายวิชาการ', 'ฝ่ายวิชาการ')
           .replace('รองผู้อำนวยการกลุ่มบริหารวิชาการ', 'ฝ่ายวิชาการ');
+        const roundSub = activeRound === 2 ? ' (ครั้งที่ 2)' : ' (ครั้งที่ 1)';
         actionButtonHtml = `
-          <span class="badge badge-waiting-stage" title="ขณะนี้อยู่ในขั้นตอนของ ${escapeHtml(currentStageName)}">
-            <i class="fa-solid fa-clock"></i> รอ${escapeHtml(stageShort)}
+          <span class="badge badge-waiting-stage" title="ขณะนี้อยู่ในขั้นตอนของ ${escapeHtml(currentStageName)}${roundSub}">
+            <i class="fa-solid fa-clock"></i> รอ${escapeHtml(stageShort)}${roundSub}
           </span>
         `;
       }
@@ -1722,7 +1763,7 @@ async function loadAdminPlans() {
           <td>
             <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
               <code>${escapeHtml(p.subject_code)}</code>
-              ${p.current_round === 2 
+              ${hasRound2 
                 ? '<span class="badge-round badge-round-2" style="font-size: 0.72rem;"><i class="fa-solid fa-2"></i> ครั้งที่ 2</span>'
                 : '<span class="badge-round badge-round-1" style="font-size: 0.72rem;"><i class="fa-solid fa-1"></i> ครั้งที่ 1</span>'
               }
@@ -1731,7 +1772,7 @@ async function loadAdminPlans() {
           </td>
           <td>
             <div style="font-weight: 600; font-size: 0.82rem; color: #1e40af;">
-              <i class="fa-solid fa-user-clock"></i> ตอนนี้ถึง: ${escapeHtml(currentStageName)}
+              <i class="fa-solid fa-user-clock"></i> ${activeRound === 2 ? 'ครั้งที่ 2 ถึง: ' : 'ครั้งที่ 1 ถึง: '}${escapeHtml(currentStageName)}
             </div>
             ${miniTimelineHtml}
           </td>
@@ -1833,16 +1874,58 @@ function selectReviewRound(roundNum) {
       }
     }
   }
+
+  // Synchronize stage key and title for the chosen round
+  const planId = document.getElementById('reviewPlanId') ? document.getElementById('reviewPlanId').value : null;
+  const p = (window.adminPlansCache && planId) ? window.adminPlansCache.find(x => x.id === planId) : null;
+  const stageEl = document.getElementById('reviewCurrentStage');
+  const titleEl = document.getElementById('modalCurrentStageTitle');
+
+  const stageTitleMap = {
+    dept_head: 'หัวหน้ากลุ่มสาระการเรียนรู้',
+    curriculum_head: 'หัวหน้างานหลักสูตร',
+    academic_director: 'รองผู้อำนวยการฝ่ายวิชาการ',
+    director: 'ผู้อำนวยการโรงเรียน',
+    completed: 'อนุมัติเรียบร้อย'
+  };
+
+  let targetStage = 'dept_head';
+  if (p) {
+    targetStage = r === 2 ? (p.round_2_stage || 'dept_head') : (p.current_stage || 'dept_head');
+    if (currentUser && currentUser.role && stageTitleMap[currentUser.role] && currentUser.role !== 'admin') {
+      targetStage = currentUser.role;
+    }
+  } else if (currentUser && currentUser.role && stageTitleMap[currentUser.role] && currentUser.role !== 'admin') {
+    targetStage = currentUser.role;
+  }
+
+  if (stageEl) stageEl.value = targetStage;
+  if (titleEl) {
+    const roundSuffix = r === 2 ? ' (ครั้งที่ 2)' : ' (ครั้งที่ 1)';
+    titleEl.textContent = (stageTitleMap[targetStage] || targetStage) + roundSuffix;
+  }
 }
 
 function openStepReviewModal(planId, teacherName, subjectCode, currentStage, currentTitle, defaultRound = 1) {
-  document.getElementById('reviewPlanId').value = planId;
-  const stageEl = document.getElementById('reviewCurrentStage');
-  if (stageEl) stageEl.value = currentStage || 'dept_head';
-  document.getElementById('reviewPlanTitle').textContent = `${subjectCode} (${teacherName})`;
-  document.getElementById('modalCurrentStageTitle').textContent = currentTitle;
+  let defRound = 1;
+  let p = null;
+  if (typeof teacherName === 'number') {
+    defRound = teacherName;
+  } else if (defaultRound) {
+    defRound = defaultRound;
+  }
 
-  selectReviewRound(defaultRound || 1);
+  if (window.adminPlansCache) {
+    p = window.adminPlansCache.find(x => x.id === planId);
+  }
+
+  const tName = p ? p.teacher_name : (typeof teacherName === 'string' ? teacherName : '');
+  const sCode = p ? p.subject_code : (typeof subjectCode === 'string' ? subjectCode : '');
+
+  document.getElementById('reviewPlanId').value = planId;
+  document.getElementById('reviewPlanTitle').textContent = `${sCode} (${tName})`;
+
+  selectReviewRound(defRound);
 
   // Load PDF into embedded iframe
   const iframe = document.getElementById('reviewPdfIframe');
@@ -1855,7 +1938,7 @@ function openStepReviewModal(planId, teacherName, subjectCode, currentStage, cur
   if (currentUser) {
     reviewerInput.value = `${currentUser.name} (${currentUser.position_title})`;
   } else {
-    reviewerInput.value = currentTitle;
+    reviewerInput.value = currentTitle || 'ผู้ตรวจพิจารณา';
   }
 
   // Pre-fill default feedback as requested by user
@@ -1875,6 +1958,41 @@ function closeReviewModal() {
   document.getElementById('reviewModal').classList.remove('active');
   const iframe = document.getElementById('reviewPdfIframe');
   if (iframe) iframe.src = '';
+}
+
+// Render Thai recommendation text onto high-res canvas PNG for stamping on PDF dotted lines
+function renderFeedbackTextToPng(text, width = 205, height = 48) {
+  const canvas = document.createElement('canvas');
+  const scale = 3; // 3x ultra-sharp resolution for high-quality printing
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+
+  ctx.font = '500 13px "Sarabun", "TH Sarabun New", "Tahoma", "Leelawadee UI", sans-serif';
+  ctx.fillStyle = '#0f172a';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+
+  const startX = 6;
+  const line1Y = 13;
+  const line2Y = 35;
+
+  const cleanText = (text || '').trim();
+  if (cleanText.length <= 32) {
+    ctx.fillText(cleanText, startX, line1Y);
+  } else {
+    // Split into 2 lines cleanly at word boundaries
+    let splitIdx = 30;
+    const spaceIdx = cleanText.lastIndexOf(' ', splitIdx);
+    if (spaceIdx > 15) splitIdx = spaceIdx;
+    const part1 = cleanText.substring(0, splitIdx).trim();
+    const part2 = cleanText.substring(splitIdx).trim();
+    ctx.fillText(part1, startX, line1Y);
+    ctx.fillText(part2, startX, line2Y);
+  }
+
+  return canvas.toDataURL('image/png');
 }
 
 async function submitReviewAction(action) {
@@ -1996,6 +2114,37 @@ async function submitReviewAction(action) {
             width: renderW,
             height: renderH
           });
+
+          // If academic_director approved, also stamp their recommendation text onto the dotted lines
+          if (currentStage === 'academic_director' && feedback) {
+            try {
+              const fbDataUrl = renderFeedbackTextToPng(feedback, 205, 48);
+              const fbParts = fbDataUrl.split(',');
+              const fbB64 = fbParts.length > 1 ? fbParts[1] : fbParts[0];
+              const fbBin = atob(fbB64);
+              const fbBytes = new Uint8Array(fbBin.length);
+              for (let i = 0; i < fbBin.length; i++) fbBytes[i] = fbBin.charCodeAt(i);
+
+              const fbImg = await pdfDoc.embedPng(fbBytes);
+              const fbLeftImgX = isCol2 ? 399 : 110;
+              const fbTopImgY = 712; // Top of the 48px box so line 1 sits at 725 and line 2 sits at 747
+
+              const fbPdfX = toPdfX(fbLeftImgX);
+              const fbPdfY = toPdfY(fbTopImgY + 48); // PDF-lib y is bottom-left of image
+              const fbRenderW = 205 * scaleX;
+              const fbRenderH = 48 * scaleY;
+
+              targetPage.drawImage(fbImg, {
+                x: fbPdfX,
+                y: fbPdfY,
+                width: fbRenderW,
+                height: fbRenderH
+              });
+              console.log('✅ Academic Director recommendation text stamped on dotted lines successfully!');
+            } catch (fbErr) {
+              console.warn('Could not stamp academic_director recommendation text:', fbErr);
+            }
+          }
 
           const stampedPdfBytes = await pdfDoc.save();
           fileToUpload = new File([stampedPdfBytes], `stamped_${planId}.pdf`, { type: 'application/pdf' });

@@ -734,8 +734,8 @@ if ($method === 'GET' && preg_match('#^/plans/([^/]+)/timeline$#', $path, $match
     $t1Stmt->execute([$planId]);
     $timelineRound1 = $t1Stmt->fetchAll();
 
-    // If timeline doesn't exist yet or is not 5 steps, initialize it on the fly
-    if (empty($timelineRound1) || count($timelineRound1) !== 5) {
+    // If timeline doesn't exist yet or is less than 4 steps, initialize it on the fly
+    if (empty($timelineRound1) || count($timelineRound1) < 4) {
         init_approval_timeline($pdo, $planId, $plan['teacher_name'] ?? 'ครูผู้สอน', $plan['current_stage'] ?? 'dept_head', $plan['submission_status'] ?? 'submitted', 1);
         $t1Stmt->execute([$planId]);
         $timelineRound1 = $t1Stmt->fetchAll();
@@ -749,7 +749,7 @@ if ($method === 'GET' && preg_match('#^/plans/([^/]+)/timeline$#', $path, $match
     $t2Stmt->execute([$planId]);
     $timelineRound2 = $t2Stmt->fetchAll();
 
-    if ((!empty($plan['round_2_status']) && $plan['round_2_status'] !== 'not_started') && empty($timelineRound2)) {
+    if ((!empty($plan['round_2_status']) && $plan['round_2_status'] !== 'not_started') && (empty($timelineRound2) || count($timelineRound2) < 4)) {
         init_approval_timeline($pdo, $planId, $plan['teacher_name'] ?? 'ครูผู้สอน', $plan['round_2_stage'] ?? 'dept_head', $plan['round_2_status'] ?? 'submitted', 2);
         $t2Stmt->execute([$planId]);
         $timelineRound2 = $t2Stmt->fetchAll();
@@ -820,8 +820,11 @@ if ($method === 'POST' && preg_match('#^/plans/([^/]+)/submit-round-2$#', $path,
 if ($method === 'GET' && $path === '/admin/plans') {
     $stage = $_GET['stage'] ?? null;
     $dept = $_GET['department'] ?? null;
-    $term = $_GET['term'] ?? null;
+    $term = $_GET['term_id'] ?? $_GET['term'] ?? null;
     $search = $_GET['search'] ?? null;
+    $filterMode = $_GET['filter_mode'] ?? 'all';
+    $reviewerRole = $_GET['reviewer_role'] ?? null;
+    $reviewerDept = $_GET['reviewer_dept'] ?? null;
 
     $sql = "
         SELECT lp.*, at.name as term_name, at.code as term_code 
@@ -831,21 +834,24 @@ if ($method === 'GET' && $path === '/admin/plans') {
     ";
     $params = [];
 
-    if ($stage && $stage !== 'all') {
-        $sql .= " AND lp.current_stage = ?";
-        $params[] = $stage;
-    }
-    if ($dept && $dept !== 'all') {
-        $sql .= " AND lp.teacher_department = ?";
-        $params[] = $dept;
-    }
     if ($term && $term !== 'all') {
         $sql .= " AND lp.academic_term_id = ?";
         $params[] = $term;
     }
+
+    // Role scoping: dept_head can only see their department
+    if ($reviewerRole === 'dept_head' && !empty($reviewerDept)) {
+        $sql .= " AND lp.teacher_department = ?";
+        $params[] = $reviewerDept;
+    } elseif ($dept && $dept !== 'all') {
+        $sql .= " AND lp.teacher_department = ?";
+        $params[] = $dept;
+    }
+
     if ($search) {
-        $sql .= " AND (lp.teacher_name LIKE ? OR lp.subject_name LIKE ? OR lp.subject_code LIKE ?)";
+        $sql .= " AND (lp.teacher_name LIKE ? OR lp.teacher_email LIKE ? OR lp.subject_name LIKE ? OR lp.subject_code LIKE ?)";
         $sTerm = "%{$search}%";
+        $params[] = $sTerm;
         $params[] = $sTerm;
         $params[] = $sTerm;
         $params[] = $sTerm;
@@ -854,7 +860,104 @@ if ($method === 'GET' && $path === '/admin/plans') {
     $sql .= " ORDER BY lp.created_at DESC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    json_resp(['success' => true, 'data' => $stmt->fetchAll()]);
+    $allPlans = $stmt->fetchAll();
+
+    // Fetch timeline steps for all plans in bulk
+    $planIds = array_column($allPlans, 'id');
+    $timelinesByPlanRound = [];
+    if (!empty($planIds)) {
+        $inClause = implode(',', array_fill(0, count($planIds), '?'));
+        $tlStmt = $pdo->prepare("SELECT * FROM approval_timeline WHERE lesson_plan_id IN ($inClause) ORDER BY step_order ASC");
+        $tlStmt->execute($planIds);
+        $allTlSteps = $tlStmt->fetchAll();
+        foreach ($allTlSteps as $st) {
+            $pid = $st['lesson_plan_id'];
+            $r = intval($st['round_number'] ?? 1) === 2 ? 2 : 1;
+            $timelinesByPlanRound[$pid][$r][] = $st;
+        }
+    }
+
+    $countMyTurn = 0;
+    $countApproved = 0;
+    $countWaitingOthers = 0;
+    $countRevision = 0;
+    $countTotal = count($allPlans);
+
+    $filteredPlans = [];
+
+    foreach ($allPlans as &$p) {
+        $pid = $p['id'];
+        $hasRound2 = (intval($p['current_round']) === 2 || (!empty($p['round_2_status']) && $p['round_2_status'] !== 'not_started'));
+        $r1Approved = ($p['submission_status'] === 'approved');
+        $r2Approved = ($p['round_2_status'] === 'approved');
+        $r1Revision = ($p['submission_status'] === 'revision_needed');
+        $r2Revision = ($p['round_2_status'] === 'revision_needed');
+
+        $t1 = $timelinesByPlanRound[$pid][1] ?? [];
+        $t2 = $timelinesByPlanRound[$pid][2] ?? [];
+        $p['timeline_round_1'] = $t1;
+        $p['timeline_round_2'] = $t2;
+
+        // Active round for reviewer focus
+        $activeRound = ($r1Approved && $hasRound2) ? 2 : 1;
+        $activeStatus = $activeRound === 2 ? ($p['round_2_status'] ?? 'submitted') : ($p['submission_status'] ?? 'submitted');
+        $activeStage = $activeRound === 2 ? ($p['round_2_stage'] ?? 'dept_head') : ($p['current_stage'] ?? 'dept_head');
+        $p['active_round'] = $activeRound;
+        $p['active_status'] = $activeStatus;
+        $p['active_stage'] = $activeStage;
+        $p['timeline'] = ($activeRound === 2 && !empty($t2)) ? $t2 : $t1;
+
+        // Check if it's my turn
+        $isMyTurnR1 = in_array($p['submission_status'], ['submitted', 'under_review']) && 
+                      ($reviewerRole === 'admin' || $p['current_stage'] === $reviewerRole);
+        $isMyTurnR2 = $hasRound2 && in_array($p['round_2_status'], ['submitted', 'under_review']) && 
+                      ($reviewerRole === 'admin' || ($p['round_2_stage'] ?? 'dept_head') === $reviewerRole);
+
+        $isMyTurn = $isMyTurnR1 || $isMyTurnR2;
+
+        // Overall status categorization for KPI counters
+        $isFullyApproved = $hasRound2 ? ($r1Approved && $r2Approved) : $r1Approved;
+        $isRevision = $r1Revision || $r2Revision;
+
+        if ($isFullyApproved) {
+            $countApproved++;
+        } elseif ($isRevision) {
+            $countRevision++;
+        } elseif ($isMyTurn) {
+            $countMyTurn++;
+        } else {
+            $countWaitingOthers++;
+        }
+
+        // Apply filter_mode
+        $include = true;
+        if ($filterMode === 'my_turn') {
+            $include = $isMyTurn;
+        } elseif ($filterMode === 'approved') {
+            $include = $isFullyApproved;
+        } elseif ($filterMode === 'revision') {
+            $include = $isRevision;
+        } elseif ($filterMode === 'waiting_others') {
+            $include = (!$isFullyApproved && !$isRevision && !$isMyTurn);
+        }
+
+        if ($include) {
+            $filteredPlans[] = $p;
+        }
+    }
+    unset($p);
+
+    json_resp([
+        'success' => true,
+        'data' => $filteredPlans,
+        'counts' => [
+            'my_turn' => $countMyTurn,
+            'approved' => $countApproved,
+            'waiting_others' => $countWaitingOthers,
+            'revision' => $countRevision,
+            'total' => $countTotal
+        ]
+    ]);
 }
 
 // 15. POST /api/admin/plans/:id/step-review (Tier progression)
@@ -882,6 +985,18 @@ if ($method === 'POST' && preg_match('#^/admin/plans/([^/]+)/step-review$#', $pa
         'director' => 'ผู้อำนวยการโรงเรียน',
         'completed' => 'อนุมัติเรียบร้อย'
     ];
+
+    // Ensure Round 2 timeline exists in approval_timeline if reviewing Round 2
+    if ($roundNumber === 2) {
+        $chk2 = $pdo->prepare("SELECT COUNT(*) FROM approval_timeline WHERE lesson_plan_id = ? AND round_number = 2");
+        $chk2->execute([$planId]);
+        if ($chk2->fetchColumn() == 0) {
+            $pNameStmt = $pdo->prepare("SELECT teacher_name, round_2_stage, round_2_status FROM lesson_plans WHERE id = ?");
+            $pNameStmt->execute([$planId]);
+            $pRow = $pNameStmt->fetch();
+            init_approval_timeline($pdo, $planId, $pRow['teacher_name'] ?? 'ครูผู้สอน', $pRow['round_2_stage'] ?? 'dept_head', $pRow['round_2_status'] ?? 'submitted', 2);
+        }
+    }
 
     // If an updated stamped PDF was attached by client-side PDFLib
     if (isset($_FILES['pdf_file']) && $_FILES['pdf_file']['error'] === UPLOAD_ERR_OK) {
@@ -990,12 +1105,21 @@ if ($method === 'POST' && preg_match('#^/admin/plans/([^/]+)/step-review$#', $pa
         ");
         $updStep->execute([$feedback ?: 'ส่งกลับเพื่อแก้ไข', $reviewerName, $reviewerSignature, $planId, $stageKey, $roundNumber, $roundNumber]);
 
-        $updPlan = $pdo->prepare("
-            UPDATE lesson_plans 
-            SET submission_status = 'revision_needed', reviewer_feedback = ?, reviewed_at = NOW(), reviewed_by = ? 
-            WHERE id = ?
-        ");
-        $updPlan->execute([$feedback, $reviewerName, $planId]);
+        if ($roundNumber === 2) {
+            $updPlan = $pdo->prepare("
+                UPDATE lesson_plans 
+                SET round_2_status = 'revision_needed', reviewer_feedback = ?, reviewed_at = NOW(), reviewed_by = ? 
+                WHERE id = ?
+            ");
+            $updPlan->execute([$feedback, $reviewerName, $planId]);
+        } else {
+            $updPlan = $pdo->prepare("
+                UPDATE lesson_plans 
+                SET submission_status = 'revision_needed', reviewer_feedback = ?, reviewed_at = NOW(), reviewed_by = ? 
+                WHERE id = ?
+            ");
+            $updPlan->execute([$feedback, $reviewerName, $planId]);
+        }
 
         json_resp(['success' => true, 'message' => 'ส่งกลับแผนการสอนเพื่อแก้ไขปรับปรุงเรียบร้อย']);
     }

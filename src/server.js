@@ -1237,13 +1237,13 @@ app.get('/api/admin/plans', async (req, res) => {
     sql += ` ORDER BY lp.created_at DESC`;
     const rows = await db.query(sql, params);
 
-    // Attach timeline steps for instant inline display
+    // Fetch timeline steps for all plans in bulk
     for (const p of rows) {
       let timeline = await db.query(
         `SELECT * FROM approval_timeline WHERE lesson_plan_id = ? ORDER BY step_order ASC`,
         [p.id]
       );
-      if (!timeline || timeline.length === 0 || timeline.length !== 5) {
+      if (!timeline || timeline.length === 0 || timeline.length < 4) {
         await initApprovalTimeline(p.id, p.teacher_name, p.current_stage, p.submission_status);
         timeline = await db.query(
           `SELECT * FROM approval_timeline WHERE lesson_plan_id = ? ORDER BY step_order ASC`,
@@ -1254,7 +1254,7 @@ app.get('/api/admin/plans', async (req, res) => {
     }
 
     // Compute scope counts for badges & KPIs
-    let countSql = `SELECT lp.submission_status, lp.current_stage, lp.teacher_department FROM lesson_plans lp WHERE 1=1`;
+    let countSql = `SELECT lp.submission_status, lp.current_stage, lp.teacher_department, lp.round_2_status, lp.round_2_stage, lp.current_round FROM lesson_plans lp WHERE 1=1`;
     const countParams = [];
     if (term_id) {
       countSql += ` AND lp.academic_term_id = ?`;
@@ -1273,23 +1273,29 @@ app.get('/api/admin/plans', async (req, res) => {
     const countTotal = allPlansForCounts.length;
 
     for (const item of allPlansForCounts) {
-      if (item.submission_status === 'approved') {
-        countApproved++;
-      } else if (item.submission_status === 'revision_needed') {
-        countRevision++;
-      } else if (['submitted', 'under_review'].includes(item.submission_status)) {
-        let isMyTurn = false;
-        if (reviewer_role === 'admin') {
-          isMyTurn = true;
-        } else if (validReviewerStages.includes(reviewer_role)) {
-          isMyTurn = item.current_stage === reviewer_role;
-        }
+      const hasRound2 = (item.current_round === 2 || (item.round_2_status && item.round_2_status !== 'not_started'));
+      const r1Approved = item.submission_status === 'approved';
+      const r2Approved = item.round_2_status === 'approved';
+      const r1Revision = item.submission_status === 'revision_needed';
+      const r2Revision = item.round_2_status === 'revision_needed';
 
-        if (isMyTurn) {
-          countMyTurn++;
-        } else {
-          countWaitingOthers++;
-        }
+      const isMyTurnR1 = ['submitted', 'under_review'].includes(item.submission_status) && 
+        (reviewer_role === 'admin' || item.current_stage === reviewer_role);
+      const isMyTurnR2 = hasRound2 && ['submitted', 'under_review'].includes(item.round_2_status) && 
+        (reviewer_role === 'admin' || (item.round_2_stage || 'dept_head') === reviewer_role);
+
+      const isMyTurn = isMyTurnR1 || isMyTurnR2;
+      const isFullyApproved = hasRound2 ? (r1Approved && r2Approved) : r1Approved;
+      const isRevision = r1Revision || r2Revision;
+
+      if (isFullyApproved) {
+        countApproved++;
+      } else if (isRevision) {
+        countRevision++;
+      } else if (isMyTurn) {
+        countMyTurn++;
+      } else {
+        countWaitingOthers++;
       }
     }
 
@@ -1357,8 +1363,8 @@ app.get('/api/plans/:id/timeline', async (req, res) => {
       [id]
     );
 
-    // If timeline doesn't exist yet or is not 5 steps, initialize it on the fly
-    if (!timelineRound1 || timelineRound1.length === 0 || timelineRound1.length !== 5) {
+    // If timeline doesn't exist yet or is less than 4 steps, initialize it on the fly
+    if (!timelineRound1 || timelineRound1.length === 0 || timelineRound1.length < 4) {
       await initApprovalTimeline(id, plan.teacher_name, plan.current_stage || 'dept_head', plan.submission_status || 'submitted', 1);
       timelineRound1 = await db.query(
         `SELECT * FROM approval_timeline WHERE lesson_plan_id = ? AND (round_number = 1 OR round_number IS NULL) ORDER BY step_order ASC`,
@@ -1371,7 +1377,7 @@ app.get('/api/plans/:id/timeline', async (req, res) => {
       [id]
     );
 
-    if ((plan.round_2_status && plan.round_2_status !== 'not_started') && (!timelineRound2 || timelineRound2.length === 0)) {
+    if ((plan.round_2_status && plan.round_2_status !== 'not_started') && (!timelineRound2 || timelineRound2.length < 4)) {
       await initApprovalTimeline(id, plan.teacher_name, plan.round_2_stage || 'dept_head', plan.round_2_status || 'submitted', 2);
       timelineRound2 = await db.query(
         `SELECT * FROM approval_timeline WHERE lesson_plan_id = ? AND round_number = 2 ORDER BY step_order ASC`,
