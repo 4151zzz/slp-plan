@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Environment and sensitive keys
+.env
+credentials/
+*.pem
+*.key
+
+# Uploads, local databases, and runtime data
+data/uploads/
+data/signatures/
+data/stamped/
+data/*.db
+data/*.sqlite
+data/*.log
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

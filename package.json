@@ -1,0 +1,28 @@
+{
+  "name": "school-lesson-plan-system",
+  "version": "1.0.0",
+  "description": "High-Performance School Lesson Plan Submission System with Concurrency Queue and Duplicate Prevention",
+  "author": "wunPiyapong",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test:concurrency": "node test/concurrency-test.js"
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "bullmq": "^5.41.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "googleapis": "^144.0.0",
+    "ioredis": "^5.4.2",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.24.5",
+    "pdf-lib": "^1.17.1",
+    "pg": "^8.23.0",
+    "sqlite3": "^5.1.7",
+    "uuid": "^11.0.5"
+  }
+}

@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบส่งแผนการสอนออนไลน์ (Lesson Plan Submission Portal)</title>
+  <meta name="description" content="ระบบส่งแผนการสอนออนไลน์ รองรับการลงชื่ออิเล็กทรอนิกส์ การตรวจสอบการส่งซ้ำ และการสำรองข้อมูลขึ้น Google Drive อัตโนมัติ">
+  
+  <!-- Google Fonts: Prompt & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Signature Pad CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+
+  <!-- SweetAlert2 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- PDF-Lib for client-side stamping -->
+  <script src="js/pdf-lib.min.js"></script>
+  <script>if (!window.PDFLib) document.write('<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"><\/script>');</script>
+
+  <!-- Universal API Adapter -->
+  <script src="js/api-adapter.js"></script>
+
+
+  <!-- School Favicon -->
+  <link rel="icon" type="image/png" href="images/logo.png">
+  <link rel="apple-touch-icon" href="images/logo.png">
+
+  <link rel="stylesheet" href="css/style.css?v=20260904_51">
+</head>
+<body>
+
+  <!-- Aesthetic Header Glow Background -->
+  <div class="bg-glow"></div>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="navbar-top-row">
+      <a href="#" class="brand" onclick="switchTab('submit')">
+        <img src="images/logo.png" alt="ตราโรงเรียนสระหลวงพิทยาคม" class="brand-logo-img">
+        <div>
+          <div class="brand-title">ระบบส่งแผนการสอนออนไลน์</div>
+          <div class="brand-sub">โรงเรียนสระหลวงพิทยาคม • Lesson Plan Portal</div>
+        </div>
+      </a>
+
+      <!-- User Profile & Quick Action -->
+      <div class="nav-user-bar">
+        <a href="admin.html" class="btn-admin-nav" id="navAdminBtn" style="display: none;" title="เข้าสู่หน้าจัดการระบบโรงเรียน (Admin Console)">
+          <i class="fa-solid fa-sliders"></i> จัดการระบบ
+        </a>
+        <button type="button" class="user-profile-badge" id="currentUserBadge" onclick="openUserProfileModal()" title="คลิกเพื่อดูข้อมูลบัญชีผู้ใช้งาน">
+          <div class="user-avatar-circle" id="userAvatarIcon">👤</div>
+          <div class="user-meta-info">
+            <div class="user-meta-name" id="userNameDisplay">กำลังโหลด...</div>
+            <div class="user-meta-role" id="userRoleDisplay">-</div>
+          </div>
+          <i class="fa-solid fa-chevron-down" style="font-size: 0.72rem; margin-left: 2px; opacity: 0.75; flex-shrink: 0;"></i>
+        </button>
+        <button type="button" class="btn-logout-circle" onclick="handleLogout()" title="ออกจากระบบ (Logout)">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i>
+        </button>
+      </div>
+    </div>
+
+    <nav class="nav-tabs" role="tablist">
+      <button class="nav-btn active" id="tabBtnSubmit" onclick="switchTab('submit')">
+        <i class="fa-solid fa-cloud-arrow-up"></i> ส่งแผนการสอน
+      </button>
+      <button class="nav-btn" id="tabBtnTrack" onclick="switchTab('track')">
+        <i class="fa-solid fa-clock-rotate-left"></i> สถานะของฉัน & Timeline
+      </button>
+      <button class="nav-btn" id="tabBtnAdmin" onclick="switchTab('admin')">
+        <i class="fa-solid fa-clipboard-check"></i> ระบบตรวจแผนตามลำดับขั้น
+      </button>
+    </nav>
+  </header>
+
+  <!-- Main Content Wrapper -->
+  <main class="main-wrapper">
+
+    <!-- =========================================================
+         TAB 1: SUBMISSION FORM (ส่งแผนการสอน)
+         ========================================================= -->
+    <section id="panelSubmit" class="tab-panel active">
+      <div class="hero-banner">
+        <h1 class="hero-title" id="formHeaderTitle">ส่งแผนการสอนประจำภาคเรียน</h1>
+        <p class="hero-desc">
+          กรุณากรอกข้อมูลรายวิชา แนบไฟล์แผนการสอน (PDF) พร้อมลงลายมือชื่ออิเล็กทรอนิกส์เพื่อรับรองความถูกต้อง ระบบจะดำเนินการประทับตรารับรองและสำรองขึ้น Google Drive โดยอัตโนมัติ
+        </p>
+      </div>
+
+      <!-- Editing Mode Notice Banner -->
+      <div id="editModeNotice" class="alert-card alert-warning" style="display: none;">
+        <div class="alert-icon"><i class="fa-solid fa-pen-fancy"></i></div>
+        <div class="alert-content">
+          <div class="alert-title">โหมดแก้ไขแผนการสอน (Revision / Edit Mode)</div>
+          <div class="alert-body">
+            คุณกำลังแก้ไขแผนการสอนเดิม (รหัส: <span id="editingPlanIdDisplay"></span>) ข้อมูลที่อัปเดตจะถูกส่งเข้าระบบตรวจใหม่อีกครั้ง
+          </div>
+          <div class="alert-actions">
+            <button class="btn btn-sm btn-outline" onclick="cancelEditMode()">ยกเลิกโหมดแก้ไข</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Duplicate Warning Banner (Placed neatly within the form view) -->
+      <div id="duplicateAlertBanner" class="alert-card alert-warning" style="display: none;">
+        <div class="alert-icon">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <div class="alert-content">
+          <div class="alert-title" id="dupBannerTitle">คุณได้ส่งแผนการสอนสำหรับภาคเรียนนี้ไปแล้ว</div>
+          <div class="alert-body" id="dupBannerBody">
+            ตามระเบียบกำหนดให้ครู 1 ท่านส่งแผนการสอนหลักได้เพียง 1 รายการต่อภาคเรียน
+          </div>
+          <div class="alert-actions" id="dupBannerActions">
+            <button class="btn btn-sm btn-primary" id="btnEditExistingBanner" onclick="prepareEditFromBanner()">
+              <i class="fa-solid fa-pen-to-square"></i> แก้ไข / อัปเดตแผนเดิม
+            </button>
+            <a href="#" class="btn btn-sm btn-outline" id="btnViewExistingDrive" target="_blank">
+              <i class="fa-brands fa-google-drive"></i> ดูไฟล์บน Google Drive
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Verified Teacher Identity Banner (Populated by app.js for authenticated teachers) -->
+      <div class="verified-teacher-banner" id="verifiedTeacherBanner" style="display: none;">
+        <div class="verified-avatar-wrap">
+          <span class="verified-avatar" id="verifiedTeacherAvatar">👨‍🏫</span>
+          <span class="verified-check-pill" title="ยืนยันตัวตนสำเร็จ"><i class="fa-solid fa-check"></i></span>
+        </div>
+        <div class="verified-details">
+          <div class="verified-badge-label">
+            <i class="fa-solid fa-shield-halved"></i> บัญชีครูผู้สอนที่ผ่านการยืนยันตัวตน
+          </div>
+          <div class="verified-name" id="verifiedTeacherName">กำลังโหลดข้อมูล...</div>
+          <div class="verified-sub" id="verifiedTeacherSub">-</div>
+        </div>
+        <div class="verified-action">
+          <span class="badge badge-success"><i class="fa-solid fa-certificate"></i> มีสิทธิ์ส่งแผนการสอน</span>
+        </div>
+      </div>
+
+      <form id="lessonPlanForm" onsubmit="handleFormSubmit(event)">
+        <input type="hidden" id="editPlanId" name="edit_plan_id" value="">
+
+        <!-- STEP 1: ข้อมูลรายวิชาและภาคเรียน -->
+        <div class="app-card step-card" id="stepCard1">
+          <div class="card-header">
+            <div class="step-badge-title">
+              <span class="step-num">1</span>
+              <div>
+                <h2 class="card-title">ข้อมูลรายวิชาและภาคเรียน</h2>
+                <div class="card-subtitle">กรุณาตรวจสอบภาคเรียนและข้อมูลรายวิชาที่ต้องการส่งแผนการสอน</div>
+              </div>
+            </div>
+            <span class="badge badge-submitted" id="modeBadge">ส่งใหม่</span>
+          </div>
+
+          <div class="step-card-body">
+            <!-- Round Selection for Teacher -->
+            <div class="form-group" style="margin-bottom: 16px; background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px;">
+              <label class="form-label" style="font-size: 0.88rem; font-weight: 700; color: #1e3a8a; margin-bottom: 8px;">
+                <i class="fa-solid fa-clock-rotate-left"></i> รอบการส่งและลงนาม:
+              </label>
+              <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.92rem; font-weight: 600; color: #1e293b;">
+                  <input type="radio" name="submission_round" value="1" checked onchange="handleSubmissionRoundChange(1)" style="width: 18px; height: 18px; accent-color: #2563eb;">
+                  <span>ครั้งที่ 1 (ต้นภาคเรียน - คอลัมน์ซ้าย)</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.92rem; font-weight: 600; color: #1e293b;">
+                  <input type="radio" name="submission_round" value="2" onchange="handleSubmissionRoundChange(2)" style="width: 18px; height: 18px; accent-color: #2563eb;">
+                  <span>ครั้งที่ 2 (กลาง/ปลายภาคเรียน - คอลัมน์ขวา)</span>
+                </label>
+              </div>
+              <div id="submissionRoundHint" style="font-size: 0.8rem; color: #475569; margin-top: 6px;">
+                <i class="fa-solid fa-circle-info text-primary"></i> ส่งครั้งแรกของภาคเรียน ลายเซ็นจะประทับลงในช่อง <strong>ครั้งที่ 1</strong>
+              </div>
+            </div>
+
+            <!-- Row 1: Term & Department -->
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" for="academicTerm">
+                  <i class="fa-solid fa-calendar-days text-primary"></i> ภาคเรียน / ปีการศึกษา <span class="required">*</span>
+                </label>
+                <select id="academicTerm" name="academic_term_id" class="form-select" required onchange="triggerDuplicateCheck()">
+                  <!-- Populated dynamically -->
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="teacherDepartment">
+                  <i class="fa-solid fa-shapes text-primary"></i> กลุ่มสาระการเรียนรู้ <span class="required">*</span>
+                </label>
+                <select id="teacherDepartment" name="teacher_department" class="form-select" required>
+                  <option value="">-- เลือกกลุ่มสาระฯ --</option>
+                  <option value="วิทยาศาสตร์และเทคโนโลยี">วิทยาศาสตร์และเทคโนโลยี</option>
+                  <option value="คณิตศาสตร์">คณิตศาสตร์</option>
+                  <option value="ภาษาไทย">ภาษาไทย</option>
+                  <option value="ภาษาต่างประเทศ">ภาษาต่างประเทศ</option>
+                  <option value="สังคมศึกษา ศาสนา และวัฒนธรรม">สังคมศึกษา ศาสนา และวัฒนธรรม</option>
+                  <option value="สุขศึกษาและพลศึกษา">สุขศึกษาและพลศึกษา</option>
+                  <option value="ศิลปะ">ศิลปะ</option>
+                  <option value="การงานอาชีพ">การงานอาชีพ</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Row 2: Subject Code, Subject Name & Grade Level -->
+            <div class="form-row form-row-3">
+              <div class="form-group">
+                <label class="form-label" for="subjectCode">
+                  <i class="fa-solid fa-barcode text-primary"></i> รหัสวิชา <span class="required">*</span>
+                </label>
+                <input type="text" id="subjectCode" name="subject_code" class="form-input" placeholder="เช่น ว31101" required style="text-transform: uppercase;">
+              </div>
+
+              <div class="form-group" style="flex: 2;">
+                <label class="form-label" for="subjectName">
+                  <i class="fa-solid fa-book-open text-primary"></i> ชื่อรายวิชา <span class="required">*</span>
+                </label>
+                <input type="text" id="subjectName" name="subject_name" class="form-input" placeholder="เช่น วิทยาการคำนวณ 1" required>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="gradeLevel">
+                  <i class="fa-solid fa-users text-primary"></i> ระดับชั้นที่สอน <span class="required">*</span>
+                </label>
+                <select id="gradeLevel" name="grade_level" class="form-select" required>
+                  <option value="">-- เลือกระดับชั้น --</option>
+                  <option value="มัธยมศึกษาปีที่ 1">มัธยมศึกษาปีที่ 1</option>
+                  <option value="มัธยมศึกษาปีที่ 2">มัธยมศึกษาปีที่ 2</option>
+                  <option value="มัธยมศึกษาปีที่ 3">มัธยมศึกษาปีที่ 3</option>
+                  <option value="มัธยมศึกษาปีที่ 4">มัธยมศึกษาปีที่ 4</option>
+                  <option value="มัธยมศึกษาปีที่ 5">มัธยมศึกษาปีที่ 5</option>
+                  <option value="มัธยมศึกษาปีที่ 6">มัธยมศึกษาปีที่ 6</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Row 3: Teacher Name & Email (Preserved with inputs for standard & edit submission) -->
+            <div class="form-row" id="teacherInputsRow">
+              <div class="form-group">
+                <label class="form-label" for="teacherName">
+                  <i class="fa-solid fa-user-tie text-primary"></i> ชื่อ-นามสกุล ครูผู้สอน <span class="required">*</span>
+                </label>
+                <input type="text" id="teacherName" name="teacher_name" class="form-input" placeholder="เช่น นายสมชาย ใจดี" required>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="teacherEmail">
+                  <i class="fa-solid fa-envelope text-primary"></i> อีเมลโรงเรียน (ใช้อ้างอิงส่งแผน) <span class="required">*</span>
+                </label>
+                <input type="email" id="teacherEmail" name="teacher_email" class="form-input" placeholder="teacher@school.ac.th" required onblur="triggerDuplicateCheck()">
+                <div id="emailFeedback" class="input-feedback"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 2: แนบไฟล์แผนการสอน (PDF) -->
+        <div class="app-card step-card" id="stepCard2">
+          <div class="card-header">
+            <div class="step-badge-title">
+              <span class="step-num">2</span>
+              <div>
+                <h2 class="card-title">แนบไฟล์เอกสารแผนการสอน (PDF) <span id="fileRequiredMarker" class="required">*</span></h2>
+                <div class="card-subtitle">รองรับไฟล์รูปแบบ PDF ขนาดไม่เกิน 50 MB ระบบจะสำรองขึ้น Google Drive อัตโนมัติ</div>
+              </div>
+            </div>
+            <span id="pdfPageInfo" class="badge badge-draft">รอแนบไฟล์</span>
+          </div>
+
+          <div class="step-card-body">
+            <!-- Modern Dropzone -->
+            <div class="file-dropzone" id="fileDropzone" onclick="document.getElementById('pdfFileInput').click()">
+              <input type="file" id="pdfFileInput" name="pdf_file" accept=".pdf,application/pdf" style="display: none;" onchange="handleFileSelected(event)">
+              <div class="dropzone-icon-wrap">
+                <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
+              </div>
+              <div class="dropzone-text">ลากไฟล์แผนการสอน (PDF) มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</div>
+              <div class="dropzone-sub">
+                <i class="fa-solid fa-circle-info"></i> รองรับเฉพาะเอกสาร PDF ขนาดไม่เกิน 50 MB (มีระบบตรวจไวรัสและสำรองคลาวด์)
+              </div>
+            </div>
+
+            <!-- Modern File Selected Card -->
+            <div id="fileBadge" class="file-selected-badge">
+              <div class="file-info-group">
+                <div class="file-icon-square">
+                  <i class="fa-solid fa-file-pdf"></i>
+                </div>
+                <div>
+                  <div class="file-badge-title">
+                    <span id="selectedFileName">เอกสารแผนการสอน.pdf</span>
+                    <span class="badge badge-success" style="font-size: 0.72rem; padding: 2px 8px;">พร้อมอัปโหลด</span>
+                  </div>
+                  <div class="file-badge-meta">
+                    <span id="selectedFileSize">0 KB</span> • ตรวจสอบรูปแบบ PDF ผ่านเรียบร้อย
+                  </div>
+                </div>
+              </div>
+              <div class="file-badge-actions">
+                <button type="button" class="btn btn-sm btn-outline text-danger" onclick="clearSelectedFile(event)" title="เปลี่ยนไฟล์">
+                  <i class="fa-solid fa-trash-can"></i> เปลี่ยนไฟล์
+                </button>
+              </div>
+            </div>
+
+            <!-- Inline PDF Preview Container -->
+            <div class="preview-container" id="inlinePreviewContainer" style="margin-top: 16px;">
+              <!-- Empty State (hidden by default) -->
+              <div id="previewPlaceholder" class="preview-placeholder" style="display: none;">
+                <i class="fa-regular fa-file-lines"></i>
+                <p style="font-weight: 600; margin-bottom: 4px;">ยังไม่มีไฟล์ตัวอย่าง</p>
+                <p style="font-size: 0.85rem;">เมื่อแนบไฟล์ PDF ระบบจะแสดงตัวอย่างเอกสารอย่างปลอดภัยที่นี่</p>
+              </div>
+
+              <!-- Loaded PDF Frame -->
+              <div id="previewFrameWrap" class="preview-frame-wrap">
+                <div class="preview-toolbar">
+                  <span id="previewToolbarTitle"><i class="fa-solid fa-file-pdf text-danger"></i> ตัวอย่างเอกสารแผนการสอน</span>
+                  <button type="button" class="btn-icon-xs" onclick="openPdfInNewTab()" title="เปิดในแท็บใหม่">
+                    <i class="fa-solid fa-arrow-up-right-from-square"></i> เปิดแท็บใหม่
+                  </button>
+                </div>
+                <iframe id="pdfPreviewFrame" class="preview-iframe" title="PDF Preview"></iframe>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STEP 3: ลายมือชื่ออิเล็กทรอนิกส์ -->
+        <div class="app-card step-card" id="stepCard3">
+          <div class="card-header">
+            <div class="step-badge-title">
+              <span class="step-num">3</span>
+              <div>
+                <h2 class="card-title">ลงลายมือชื่ออิเล็กทรอนิกส์ (Digital E-Signature)</h2>
+                <div class="card-subtitle">ใช้เมาส์หรือระบบสัมผัสลงลายมือชื่อเพื่อรับรองความถูกต้องของแผนการสอน</div>
+              </div>
+            </div>
+            <div class="signature-actions">
+              <button type="button" class="btn btn-sm btn-outline" onclick="clearSignature()" title="ล้างลายเซ็น">
+                <i class="fa-solid fa-rotate-left"></i> ล้างลายเซ็น
+              </button>
+            </div>
+          </div>
+
+          <div class="step-card-body">
+            <div class="signature-box">
+              <div class="canvas-wrapper" id="canvasWrapper">
+                <canvas id="signatureCanvas"></canvas>
+                <div class="canvas-guide-line">แนวลงลายมือชื่อครูผู้สอน</div>
+              </div>
+            </div>
+            <div id="signatureFeedback" class="input-feedback"></div>
+
+            <div class="signature-legal-notice">
+              <i class="fa-solid fa-stamp text-primary"></i>
+              <span>
+                ข้าพเจ้าขอรับรองว่าแผนการสอนและเอกสารที่แนบนี้เป็นความจริง ถูกต้องตามหลักสูตร และยินยอมให้ระบบประทับตรารับรองอิเล็กทรอนิกส์
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUBMIT ACTION CARD -->
+        <div class="app-card submit-action-card">
+          <div class="submit-action-content">
+            <div>
+              <div class="submit-action-title">ตรวจสอบความครบถ้วนเรียบร้อยแล้วหรือยัง?</div>
+              <div class="submit-action-sub">เมื่อคลิกส่ง แผนจะเข้าสู่คิวประมวลผลความเร็วสูงและสำรองข้อมูลอัตโนมัติ</div>
+            </div>
+            <button type="submit" id="btnSubmitPlan" class="btn btn-primary btn-lg btn-submit-glow">
+              <i class="fa-solid fa-paper-plane"></i> ยืนยันและส่งแผนการสอน
+            </button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- =========================================================
+         TAB 2: TRACK STATUS (ตรวจสอบสถานะของฉัน)
+         ========================================================= -->
+    <section id="panelTrack" class="tab-panel">
+      <div class="hero-banner">
+        <h1 class="hero-title">ตรวจสอบสถานะการส่งแผนการสอน</h1>
+        <p class="hero-desc">ค้นหาประวัติการส่งแผนการสอน ผลการตรวจสอบจากกลุ่มสาระฯ และลิงก์เอกสารที่สำรองไว้บน Google Drive</p>
+      </div>
+
+      <div class="app-card">
+        <div class="filter-bar">
+          <input type="email" id="trackSearchEmail" class="form-input" placeholder="ระบุอีเมลครูผู้สอนเพื่อค้นหา เช่น teacher@school.ac.th" style="flex: 2;">
+          <button type="button" class="btn btn-primary" onclick="searchTeacherHistory()">
+            <i class="fa-solid fa-magnifying-glass"></i> ค้นหาประวัติ
+          </button>
+        </div>
+
+        <div id="trackResultsArea">
+          <div class="preview-placeholder" style="padding: 3rem 1rem;">
+            <i class="fa-solid fa-folder-open"></i>
+            <p>กรุณาระบุอีเมลเพื่อเรียกดูข้อมูลการส่งแผนการสอน</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         TAB 3: REVIEWER DASHBOARD (ระบบตรวจแผนการสอน)
+         ========================================================= -->
+    <section id="panelAdmin" class="tab-panel">
+      <div class="hero-banner">
+        <h1 class="hero-title">ระบบตรวจสอบแผนการสอน (ฝ่ายวิชาการ / กลุ่มสาระฯ)</h1>
+        <p class="hero-desc">ตรวจทานเอกสารแผนการสอนที่มีการประทับตรารับรอง ลายเซ็นอิเล็กทรอนิกส์ พร้อมบันทึกผลการอนุมัติหรือแจ้งแก้ไข</p>
+      </div>
+
+      <div class="app-card">
+        <!-- Reviewer KPI Summary Cards (คลิกเพื่อกรองมุมมองได้ทันที) -->
+        <div class="stats-grid reviewer-kpi-clickable">
+          <div class="stat-card amber" onclick="setAdminFilterMode('my_turn')" title="คลิกเพื่อดูเฉพาะแผนที่ถึงคิวฉันตรวจ">
+            <div class="stat-icon amber"><i class="fa-solid fa-bolt"></i></div>
+            <div>
+              <div class="stat-number" id="reviewerPendingCount">0</div>
+              <div class="stat-label">⚡ ถึงคิวฉันตรวจ</div>
+            </div>
+          </div>
+          <div class="stat-card green" onclick="setAdminFilterMode('approved')" title="คลิกเพื่อดูแผนที่อนุมัติแล้วทั้งหมด (เลือกดูตามหมวดวิชาได้)">
+            <div class="stat-icon green"><i class="fa-solid fa-circle-check"></i></div>
+            <div>
+              <div class="stat-number" id="reviewerApprovedCount">0</div>
+              <div class="stat-label">✅ อนุมัติแล้วทั้งหมด</div>
+            </div>
+          </div>
+          <div class="stat-card red" onclick="setAdminFilterMode('revision')" title="คลิกเพื่อดูแผนที่ส่งกลับแก้ไข">
+            <div class="stat-icon red"><i class="fa-solid fa-rotate-left"></i></div>
+            <div>
+              <div class="stat-number" id="reviewerRevisionCount">0</div>
+              <div class="stat-label">⚠️ ส่งกลับให้แก้ไข</div>
+            </div>
+          </div>
+          <div class="stat-card blue" onclick="setAdminFilterMode('all')" title="คลิกเพื่อดูแผนทั้งหมดในระบบ">
+            <div class="stat-icon blue"><i class="fa-solid fa-folder-open"></i></div>
+            <div>
+              <div class="stat-number" id="reviewerTotalCount">0</div>
+              <div class="stat-label">📋 แผนทั้งหมด</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reviewer Role & View Mode Tabs (แยกแผนถึงคิวตรวจ vs อนุมัติแล้ว ชัดเจน) -->
+        <div class="reviewer-filter-nav" id="adminViewTabs">
+          <button type="button" class="reviewer-tab-btn active" id="btnFilterMyTurn" onclick="setAdminFilterMode('my_turn')">
+            <i class="fa-solid fa-bolt"></i> ถึงคิวฉันตรวจ
+            <span class="tab-badge badge-amber" id="tabBadgeMyTurn">0</span>
+          </button>
+          <button type="button" class="reviewer-tab-btn" id="btnFilterApproved" onclick="setAdminFilterMode('approved')">
+            <i class="fa-solid fa-circle-check"></i> อนุมัติแล้วทั้งหมด
+            <span class="tab-badge badge-green" id="tabBadgeApproved">0</span>
+          </button>
+          <button type="button" class="reviewer-tab-btn" id="btnFilterWaiting" onclick="setAdminFilterMode('waiting_others')">
+            <i class="fa-solid fa-hourglass-half"></i> รอขั้นตอนอื่น
+            <span class="tab-badge badge-gray" id="tabBadgeWaiting">0</span>
+          </button>
+          <button type="button" class="reviewer-tab-btn" id="btnFilterRevision" onclick="setAdminFilterMode('revision')">
+            <i class="fa-solid fa-rotate-left"></i> ส่งกลับแก้ไข
+            <span class="tab-badge badge-red" id="tabBadgeRevision">0</span>
+          </button>
+          <button type="button" class="reviewer-tab-btn" id="btnFilterAll" onclick="setAdminFilterMode('all')">
+            <i class="fa-solid fa-folder-open"></i> ทั้งหมด
+            <span class="tab-badge badge-blue" id="tabBadgeTotal">0</span>
+          </button>
+        </div>
+
+        <!-- Guidance Banner for Approved & Filter Mode -->
+        <div id="approvedDeptNotice" class="approved-dept-notice" style="display: none;">
+          <i class="fa-solid fa-circle-check" style="font-size: 1.25rem; color: #059669;"></i>
+          <div>
+            <strong>โหมดดูแผนที่อนุมัติแล้วทั้งหมด:</strong> ท่านสามารถเลือกดูแยกทีละกลุ่มสาระฯ (หมวดวิชา) หรือดูภาพรวมทั้งหมดได้จากตัวเลือกด้านล่าง
+          </div>
+        </div>
+
+        <!-- Admin Filter Bar -->
+        <div class="filter-bar">
+          <select id="adminFilterTerm" class="form-select" onchange="loadAdminPlans()">
+            <!-- Populated dynamically -->
+          </select>
+
+          <div class="dept-filter-wrap" style="flex: 1.2; position: relative;">
+            <select id="adminFilterDept" class="form-select" onchange="loadAdminPlans()" style="width: 100%;">
+              <option value="">ทุกกลุ่มสาระการเรียนรู้ (ทุกหมวด)</option>
+              <option value="วิทยาศาสตร์และเทคโนโลยี">วิทยาศาสตร์และเทคโนโลยี</option>
+              <option value="คณิตศาสตร์">คณิตศาสตร์</option>
+              <option value="ภาษาไทย">ภาษาไทย</option>
+              <option value="ภาษาต่างประเทศ">ภาษาต่างประเทศ</option>
+              <option value="สังคมศึกษา ศาสนา และวัฒนธรรม">สังคมศึกษา ศาสนา และวัฒนธรรม</option>
+              <option value="สุขศึกษาและพลศึกษา">สุขศึกษาและพลศึกษา</option>
+              <option value="ศิลปะ">ศิลปะ</option>
+              <option value="การงานอาชีพ">การงานอาชีพ</option>
+            </select>
+          </div>
+
+          <input type="text" id="adminFilterSearch" class="form-input" placeholder="🔍 ค้นหาชื่อครู, รหัสวิชา, แผนการสอน..." onkeyup="debounceAdminSearch()" style="flex: 1.5;">
+
+          <button type="button" class="btn btn-outline btn-sm" onclick="loadAdminPlans()" style="border-radius: var(--radius-full); padding: 8px 14px;" title="รีเฟรชข้อมูล">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 0.84rem; color: #475569;">
+          <span id="adminTableStatusHeader"><i class="fa-solid fa-bolt" style="color: #d97706;"></i> แสดงเฉพาะแผนที่ <strong>ถึงคิวฉันตรวจ</strong></span>
+          <span class="mobile-table-hint"><i class="fa-solid fa-arrows-left-right"></i> เลื่อนแนวนอนเพื่อดูคอลัมน์</span>
+        </div>
+
+        <!-- Plans Table -->
+        <div class="table-responsive">
+          <table class="app-table">
+            <thead>
+              <tr>
+                <th>วัน-เวลาที่ส่ง</th>
+                <th>ครูผู้สอน</th>
+                <th>กลุ่มสาระฯ</th>
+                <th>รหัสวิชา / ชั้น</th>
+                <th>สถานะ</th>
+                <th>Google Drive</th>
+                <th>การจัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="adminTableBody">
+              <tr>
+                <td colspan="7" style="text-align: center; color: #94a3b8; padding: 2rem;">กำลังโหลดข้อมูล...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- =========================================================
+       MODAL 1: ASYNC QUEUE PROGRESS MODAL (Non-blocking Live Flow)
+       ========================================================= -->
+  <div id="queueProgressModal" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 style="font-size: 1.15rem; font-weight: 700; color: #1e3a8a;">
+          <i class="fa-solid fa-spinner fa-spin" id="modalSpinner"></i> กำลังประมวลผลการส่งแผนการสอน
+        </h3>
+        <button type="button" class="btn-close-modal" onclick="closeQueueModal()" title="ปิดหน้าต่าง">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.9rem; color: #64748b;">
+          ระบบกำลังดำเนินงานแบบ Asynchronous เพื่อความรวดเร็วและป้องกันเซิร์ฟเวอร์ติดขัด
+        </p>
+
+        <!-- Stepper -->
+        <div class="queue-stepper">
+          <div class="queue-step active" id="step-validating">
+            <div class="step-circle"><i class="fa-solid fa-shield-halved"></i></div>
+            <div class="step-info">
+              <div class="step-label">1. ตรวจสอบไฟล์และข้อมูล</div>
+              <div class="step-sub">ตรวจสอบโครงสร้าง PDF และเงื่อนไขการส่งแผน</div>
+            </div>
+          </div>
+
+          <div class="queue-step" id="step-stamping">
+            <div class="step-circle"><i class="fa-solid fa-signature"></i></div>
+            <div class="step-info">
+              <div class="step-label">2. ประทับตรารับรองและลายเซ็นดิจิทัล</div>
+              <div class="step-sub">ฝังลายมือชื่ออิเล็กทรอนิกส์และรหัสกำกับเอกสาร</div>
+            </div>
+          </div>
+
+          <div class="queue-step" id="step-uploading">
+            <div class="step-circle"><i class="fa-brands fa-google-drive"></i></div>
+            <div class="step-info">
+              <div class="step-label">3. นำส่ง Google Drive ของโรงเรียน</div>
+              <div class="step-sub">อัปโหลดไฟล์ที่รับรองแล้วและบันทึก Metadata</div>
+            </div>
+          </div>
+
+          <div class="queue-step" id="step-completed">
+            <div class="step-circle"><i class="fa-solid fa-circle-check"></i></div>
+            <div class="step-info">
+              <div class="step-label">4. เสร็จสมบูรณ์</div>
+              <div class="step-sub">บันทึกข้อมูลและออกหลักฐานการส่งเรียบร้อย</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="progress-bar-wrap">
+          <div id="queueProgressBar" class="progress-bar-inner"></div>
+        </div>
+
+        <div id="queueStatusMessage" style="margin-top: 12px; font-size: 0.85rem; font-weight: 500; color: #1e40af; text-align: center;">
+          กำลังเชื่อมต่อคิวประมวลผล...
+        </div>
+      </div>
+      <div class="modal-footer" id="queueModalFooter" style="display: none; justify-content: flex-end; gap: 8px;">
+        <a id="btnQueueDriveLink" href="#" target="_blank" class="btn btn-outline" style="display: none; border-color: #2563eb; color: #2563eb;">
+          <i class="fa-brands fa-google-drive"></i> เปิดดูไฟล์ใน Google Drive
+        </a>
+        <button type="button" class="btn btn-primary" onclick="closeQueueModalAndReset()">
+          <i class="fa-solid fa-check"></i> รับทราบและกลับหน้าหลัก
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 2: DUPLICATE BLOCKED MODAL (CRITICAL RULE POPUP)
+       ========================================================= -->
+  <div id="duplicateModal" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-header" style="background: #fffbeb; border-color: #fde68a;">
+        <h3 style="font-size: 1.15rem; font-weight: 700; color: #92400e;">
+          <i class="fa-solid fa-circle-exclamation"></i> แจ้งเตือน: ส่งแผนการสอนซ้ำ
+        </h3>
+        <button type="button" class="btn-close-modal" onclick="closeDuplicateModal()" title="ปิดหน้าต่าง (Esc)">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 1rem; font-weight: 600; color: #1e293b; margin-bottom: 8px;">
+          คุณได้ส่งแผนการสอนสำหรับภาคเรียนนี้ไปแล้ว
+        </p>
+        <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 16px;">
+          ระบบมีกฎระเบียบ <strong>"1 ครูผู้สอน สามารถส่งแผนการสอนหลักได้ 1 รายการต่อภาคเรียน"</strong> เพื่อความถูกต้องในการประเมิน
+        </p>
+
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 14px; font-size: 0.88rem;">
+          <div><strong>รหัสวิชาที่ส่งไว้:</strong> <span id="dupModalSubject"></span></div>
+          <div><strong>สถานะปัจจุบัน:</strong> <span id="dupModalStatus"></span></div>
+          <div><strong>วันเวลาที่ส่ง:</strong> <span id="dupModalDate"></span></div>
+          <div id="dupModalFeedbackRow" style="margin-top: 6px; display: none; color: #b91c1c;">
+            <strong>ข้อเสนอแนะให้แก้ไข:</strong> <span id="dupModalFeedback"></span>
+          </div>
+        </div>
+
+        <div id="dupModalNotice" style="font-size: 0.85rem; color: #475569;">
+          หากต้องการปรับปรุงข้อมูล สามารถเลือกปุ่ม "แก้ไข/อัปเดตแผนเดิม" ได้ทันที
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeDuplicateModal()">ปิดหน้าต่าง</button>
+        <button type="button" id="btnEditFromModal" class="btn btn-primary" onclick="proceedToEditFromModal()">
+          <i class="fa-solid fa-pen-to-square"></i> แก้ไข / อัปเดตแผนเดิม
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 3: REVIEWER WORKSTATION (Preview PDF + Sign + Approve/Send Back)
+       ========================================================= -->
+  <div id="reviewModal" class="modal-backdrop">
+    <div class="modal-dialog review-workstation-dialog">
+      <div class="modal-header" style="background: #f8fafc; border-bottom: 1px solid var(--border-color);">
+        <h3 style="font-size: 1.15rem; font-weight: 700; color: #1e3a8a;">
+          <i class="fa-solid fa-clipboard-check"></i> หน้าต่างตรวจสอบแผนการสอนและลงนาม (Reviewer Workstation)
+        </h3>
+        <button type="button" class="btn-close-modal" onclick="closeReviewModal()" title="ปิดหน้าต่าง (Esc)">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.25rem;">
+        <input type="hidden" id="reviewPlanId" value="">
+        <input type="hidden" id="reviewCurrentStage" value="">
+        
+        <div class="review-workstation-grid">
+          
+          <!-- LEFT COLUMN: PDF PREVIEW PANEL -->
+          <div class="review-pdf-panel">
+            <div class="review-pdf-toolbar">
+              <span><i class="fa-solid fa-file-pdf" style="color: #dc2626; margin-right: 6px;"></i> พรีวิวเอกสารแผนการสอนฉบับส่งตรวจ</span>
+              <button type="button" class="btn-icon-xs" onclick="openReviewPdfNewTab()" title="เปิดเต็มจอในแท็บใหม่">
+                <i class="fa-solid fa-arrow-up-right-from-square"></i> เปิดแท็บใหม่
+              </button>
+            </div>
+            <iframe id="reviewPdfIframe" class="review-pdf-iframe" title="Lesson Plan Review Preview"></iframe>
+          </div>
+
+          <!-- RIGHT COLUMN: REVIEWER DECISION & E-SIGNATURE -->
+          <div class="review-action-panel">
+            
+            <!-- Current Stage Indicator -->
+            <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 14px;">
+              <div style="font-size: 0.78rem; color: #1e40af; font-weight: 600;">ขั้นตอนปัจจุบัน:</div>
+              <div style="font-size: 0.95rem; font-weight: 700; color: #0f172a;" id="modalCurrentStageTitle">
+                หัวหน้ากลุ่มสาระการเรียนรู้
+              </div>
+              <div style="font-size: 0.82rem; color: #475569; margin-top: 2px;">
+                <strong>แผนการสอน:</strong> <span id="reviewPlanTitle"></span>
+              </div>
+            </div>
+
+            <!-- Round Selection Button Group (ครั้งที่ 1 / ครั้งที่ 2) -->
+            <div class="round-select-wrapper" style="margin-top: 10px; margin-bottom: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <label class="form-label" style="font-size: 0.85rem; font-weight: 700; color: #1e3a8a; margin: 0;">
+                  <i class="fa-solid fa-layer-group"></i> เลือกรอบการตรวจและลงนาม:
+                </label>
+                <span id="modalRoundBadge" class="badge-round badge-round-1">รอบที่ 1</span>
+              </div>
+              <div class="round-select-btn-group">
+                <button type="button" class="btn-round-select active" id="btnReviewRound1" onclick="selectReviewRound(1)">
+                  <i class="fa-solid fa-1"></i> ตรวจครั้งที่ 1
+                </button>
+                <button type="button" class="btn-round-select" id="btnReviewRound2" onclick="selectReviewRound(2)">
+                  <i class="fa-solid fa-2"></i> ตรวจครั้งที่ 2
+                </button>
+              </div>
+              <div id="roundActiveDesc" class="round-active-desc">
+                <i class="fa-solid fa-circle-info"></i> กำลังตรวจและลงนามในช่อง: <strong>ครั้งที่ 1 (คอลัมน์ซ้าย)</strong>
+              </div>
+              <input type="hidden" id="selectedReviewRound" value="1">
+            </div>
+
+            <!-- Reviewer Name & Position -->
+            <div class="form-group" style="margin-bottom: 8px;">
+              <label class="form-label" style="font-size: 0.85rem;">ชื่อและตำแหน่งผู้ตรวจพิจารณา</label>
+              <input type="text" id="reviewerName" class="form-input" style="font-size: 0.88rem; padding: 8px 12px;">
+            </div>
+
+            <!-- Reviewer Feedback / Comments / Reason (Optional or entered) -->
+            <div class="form-group" style="margin-bottom: 8px;">
+              <label class="form-label" style="font-size: 0.85rem;">
+                ข้อคิดเห็น / ข้อเสนอแนะ (หากตีกลับ สามารถใส่เหตุผล หรือไม่ใส่ก็ได้)
+              </label>
+              <textarea id="reviewFeedback" class="form-input" rows="3" style="font-size: 0.88rem;" placeholder="ระบุข้อคิดเห็น เช่น สามารถนำไปใช้ในการสอนได้ (ไม่บังคับ)...">สามารถนำไปใช้ในการสอนได้</textarea>
+            </div>
+
+            <!-- Reviewer Electronic Signature Pad -->
+            <div class="form-group" style="margin-bottom: 4px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0;">
+                  <i class="fa-solid fa-signature"></i> ลายมือชื่ออิเล็กทรอนิกส์ผู้ตรวจ
+                </label>
+                <button type="button" class="btn-icon-xs" onclick="clearReviewerSignature()" style="font-size: 0.75rem;">
+                  <i class="fa-solid fa-rotate-left"></i> ล้างลายเซ็น
+                </button>
+              </div>
+
+              <div class="signature-box" style="border-radius: 8px;">
+                <div class="reviewer-canvas-wrap" id="reviewerCanvasWrapper">
+                  <canvas id="reviewerSignatureCanvas"></canvas>
+                  <div class="canvas-guide-line" style="bottom: 20px;">ลงลายมือชื่อผู้ตรวจที่นี่</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="background: #f8fafc; display: flex; justify-content: space-between; align-items: center;">
+        <button type="button" class="btn btn-outline" onclick="closeReviewModal()">
+          <i class="fa-solid fa-xmark"></i> ปิด
+        </button>
+
+        <!-- SEPARATE DIRECT ACTION BUTTONS: APPROVE & SEND BACK -->
+        <div style="display: flex; gap: 10px;">
+          <!-- SEND BACK (ตีกลับ) BUTTON -->
+          <button type="button" class="btn btn-danger" onclick="submitReviewAction('revision')" title="ส่งกลับให้ครูแก้ไขแผนเดิม">
+            <i class="fa-solid fa-rotate-left"></i> ตีกลับให้แก้ไข
+          </button>
+
+          <!-- APPROVE (อนุมัติ) BUTTON -->
+          <button type="button" class="btn btn-success" onclick="submitReviewAction('approve')" title="เห็นชอบและส่งต่อตามลำดับขั้น">
+            <i class="fa-solid fa-check"></i> อนุมัติ / เห็นชอบ
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 4: FULL APPROVAL WORKFLOW TIMELINE MODAL (ไทม์ไลน์)
+       ========================================================= -->
+  <div id="timelineModal" class="modal-backdrop">
+    <div class="modal-dialog" style="max-width: 650px;">
+      <div class="modal-header">
+        <h3 style="font-size: 1.15rem; font-weight: 700; color: #1e3a8a;">
+          <i class="fa-solid fa-timeline"></i> ไทม์ไลน์และลำดับขั้นการตรวจแผนการสอน
+        </h3>
+        <button type="button" class="btn-close-modal" onclick="closeTimelineModal()" title="ปิดหน้าต่าง (Esc)">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <!-- Banner showing who is currently reviewing -->
+        <div class="current-stage-banner">
+          <div>
+            <div style="font-size: 0.8rem; opacity: 0.9;">สถานะปัจจุบัน (ตอนนี้ถึงใครตรวจ):</div>
+            <div style="font-size: 1.05rem; font-weight: 700;" id="timelineCurrentReviewerBanner">
+              กำลังรอหัวหน้ากลุ่มสาระการเรียนรู้ ตรวจสอบ
+            </div>
+          </div>
+          <span class="stage-badge-pill" id="timelinePlanCodeBadge">ว31101</span>
+        </div>
+
+        <!-- Timeline Round Tabs -->
+        <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+          <button type="button" class="btn-round-select active" id="btnTimelineRound1" onclick="switchTimelineRound(1)" style="flex: 1; padding: 7px 12px; font-size: 0.84rem;">
+            <i class="fa-solid fa-1"></i> ไทม์ไลน์ครั้งที่ 1
+          </button>
+          <button type="button" class="btn-round-select" id="btnTimelineRound2" onclick="switchTimelineRound(2)" style="flex: 1; padding: 7px 12px; font-size: 0.84rem;">
+            <i class="fa-solid fa-2"></i> ไทม์ไลน์ครั้งที่ 2
+          </button>
+        </div>
+
+        <!-- Interactive Stepper Container -->
+        <div id="timelineStepperList" class="timeline-stepper">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+        <a href="#" id="timelineDriveLink" target="_blank" class="btn-gdrive" style="display: none;">
+          <i class="fa-brands fa-google-drive"></i> ดูบน Google Drive
+        </a>
+        <button type="button" class="btn btn-primary" style="margin-left: auto; border-radius: var(--radius-full); padding: 8px 24px; font-weight: 600;" onclick="closeTimelineModal()">
+          <i class="fa-solid fa-xmark"></i> ปิดหน้าต่าง (Close)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 5: USER PROFILE & SESSION INFO (ข้อมูลบัญชีผู้ใช้งาน)
+       ========================================================= -->
+  <div id="userProfileModal" class="modal-backdrop">
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); color: #ffffff;">
+        <h3 style="font-size: 1.15rem; font-weight: 700;">
+          <i class="fa-solid fa-id-card"></i> ข้อมูลบัญชีผู้ใช้งาน (Active User Profile)
+        </h3>
+        <button type="button" class="btn-close-modal" onclick="closeUserProfileModal()" title="ปิดหน้าต่าง (Esc)" style="color: #ffffff; background: rgba(255,255,255,0.2); border: none;">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem;">
+        <div style="text-align: center; margin-bottom: 1.25rem;">
+          <div style="width: 72px; height: 72px; border-radius: 50%; background: #eff6ff; display: flex; align-items: center; justify-content: center; font-size: 2.2rem; margin: 0 auto 10px; border: 3px solid #bfdbfe;" id="profileModalAvatar">👨‍🏫</div>
+          <div style="font-size: 1.2rem; font-weight: 700; color: #0f172a;" id="profileModalName">ชื่อผู้ใช้งาน</div>
+          <div style="font-size: 0.88rem; color: #2563eb; font-weight: 600;" id="profileModalRole">บทบาทหน้าที่</div>
+        </div>
+
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; gap: 10px; font-size: 0.88rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #64748b;"><i class="fa-solid fa-envelope" style="width: 18px;"></i> อีเมลโรงเรียน:</span>
+            <code style="color: #1e3a8a; font-weight: 600;" id="profileModalEmail">-</code>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #64748b;"><i class="fa-solid fa-layer-group" style="width: 18px;"></i> กลุ่มสาระฯ:</span>
+            <strong style="color: #334155;" id="profileModalDept">-</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #64748b;"><i class="fa-solid fa-award" style="width: 18px;"></i> ตำแหน่ง/วิทยฐานะ:</span>
+            <span style="color: #334155;" id="profileModalPosition">-</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #64748b;"><i class="fa-solid fa-shield-check" style="width: 18px;"></i> สถานะการเข้าสู่ระบบ:</span>
+            <span style="color: #059669; font-weight: 600;"><i class="fa-solid fa-circle-check"></i> ยืนยันตัวตนแล้ว</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
+        <button type="button" class="btn btn-outline" onclick="closeUserProfileModal()">ปิดหน้าต่าง</button>
+        <div style="display: flex; gap: 8px;">
+          <a href="admin.html" id="profileModalAdminLink" class="btn btn-outline" style="display: none;">
+            <i class="fa-solid fa-sliders"></i> แอดมิน
+          </a>
+          <button type="button" class="btn btn-danger" onclick="handleLogout()">
+            <i class="fa-solid fa-arrow-right-from-bracket"></i> ออกจากระบบ
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 6: ROUND 2 QUICK SUBMIT / SIGN MODAL (ส่งครั้งที่ 2)
+       ========================================================= -->
+  <div id="round2Modal" class="modal-backdrop">
+    <div class="modal-dialog" style="max-width: 540px;">
+      <div class="modal-header" style="background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%); color: #ffffff;">
+        <h3 style="font-size: 1.15rem; font-weight: 700;">
+          <i class="fa-solid fa-signature"></i> ส่งและลงนามแผนการสอน: ครั้งที่ 2
+        </h3>
+        <button type="button" class="btn-close-modal" onclick="closeRound2Modal()" title="ปิดหน้าต่าง (Esc)" style="color: #ffffff; background: rgba(255,255,255,0.2); border: none;">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.25rem;">
+        <div style="background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px;">
+          <div style="font-weight: 700; color: #0f766e; font-size: 0.95rem;" id="r2ModalPlanTitle">ว31101 ฟิสิกส์ 1</div>
+          <div style="font-size: 0.82rem; color: #334155; margin-top: 4px; line-height: 1.5;">
+            ระบบจะประทับตราลายเซ็นครูผู้สอนและวันที่ส่งลงใน <strong>ครั้งที่ 2 (คอลัมน์ขวา)</strong> บนหน้าบันทึกข้อความเดิม และส่งต่อตามลำดับขั้นการอนุมัติ 5 ระดับ
+          </div>
+        </div>
+
+        <input type="hidden" id="r2PlanId" value="">
+
+        <div class="form-group" style="margin-bottom: 14px;">
+          <label class="form-label" style="font-size: 0.85rem; font-weight: 600;">
+            <i class="fa-solid fa-file-pdf text-danger"></i> อัปโหลดไฟล์ PDF ฉบับครั้งที่ 2 ใหม่ (ถ้ามี หรือเว้นว่างเพื่อใช้ไฟล์เดิม):
+          </label>
+          <input type="file" id="r2PdfFile" class="form-input" accept=".pdf">
+        </div>
+
+        <div class="form-group" style="margin-bottom: 4px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="font-size: 0.85rem; font-weight: 600; margin: 0;">
+              <i class="fa-solid fa-pen-nib"></i> ลายมือชื่อครูผู้สอนสำหรับ ครั้งที่ 2 <span class="required">*</span>
+            </label>
+            <button type="button" class="btn-icon-xs" onclick="clearR2Signature()" style="font-size: 0.75rem;">
+              <i class="fa-solid fa-rotate-left"></i> ล้างลายเซ็น
+            </button>
+          </div>
+          <div class="signature-box" style="border-radius: 8px;">
+            <div class="reviewer-canvas-wrap" id="r2CanvasWrapper" style="height: 150px;">
+              <canvas id="r2SignatureCanvas"></canvas>
+              <div class="canvas-guide-line" style="bottom: 20px;">ลงลายมือชื่อครูผู้สอน (ครั้งที่ 2)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="background: #f8fafc; display: flex; justify-content: space-between; align-items: center;">
+        <button type="button" class="btn btn-outline" onclick="closeRound2Modal()">ยกเลิก</button>
+        <button type="button" class="btn btn-primary" onclick="submitRound2Quick()" style="background: linear-gradient(135deg, #0f766e, #0d9488); border: none;">
+          <i class="fa-solid fa-paper-plane"></i> ยืนยันส่งและลงนามครั้งที่ 2
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div>ระบบส่งแผนการสอนและลงชื่ออิเล็กทรอนิกส์ โรงเรียนสระหลวงพิทยาคม • รองรับปริมาณผู้ใช้พร้อมกันสูงและป้องกันการส่งซ้ำ</div>
+    <div style="margin-top: 5px; font-size: 0.8rem; color: #475569;">
+      พัฒนาและออกแบบระบบโดย: <strong style="color: #1e3a8a;">wunPiyapong</strong>
+    </div>
+    <div style="margin-top: 4px; font-size: 0.75rem; color: #94a3b8;">
+      High-Scale Asynchronous Queue Architecture &bull; Google Drive Cloud Storage &bull; E-Signature Verified
+    </div>
+  </footer>
+
+  <script src="js/app.js?v=20261002_07"></script>
+</body>
+</html>
