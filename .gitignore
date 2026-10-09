@@ -21,3 +21,8 @@ data/*.log
 Thumbs.db
 .vscode/
 .idea/
+
+# Generated test and preview PDFs
+public/*_preview.pdf
+public/test_certified*.pdf
+

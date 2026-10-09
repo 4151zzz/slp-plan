@@ -3,6 +3,7 @@ import fontkit from '@pdf-lib/fontkit';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { db } from '../database/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,73 +29,197 @@ export class PdfService {
    * Reference template image is 723 x 1024 px.
    */
   getSlotCoordinates(pageWidth, pageHeight, column = 1) {
-    const scaleX = pageWidth / 723;
-    const scaleY = pageHeight / 1024;
+    const scaleX = pageWidth / 595.32;
+    const scaleY = pageHeight / 841.92;
 
-    const toPdfX = (imgX) => imgX * scaleX;
-    const toPdfY = (imgY) => pageHeight - (imgY * scaleY);
+    const toPdfX = (x) => x * scaleX;
+    const toPdfY = (topY) => pageHeight - (topY * scaleY);
 
     const isCol2 = column === 2 || column === '2';
 
     return {
-      // Slot 1: Teacher (ผู้สอน) -> Dotted line at y = 561
+      // Slot 1: Teacher (ผู้สอน) -> Dotted line at topY = 449
       teacher: {
-        centerX: toPdfX(isCol2 ? 502 : 195),
-        centerY: toPdfY(550),
-        width: 70 * scaleX,
-        height: 20 * scaleY,
-        dateX: toPdfX(isCol2 ? 503 : 160),
-        dateY: toPdfY(488),
+        centerX: toPdfX(isCol2 ? 410 : 170),
+        centerY: toPdfY(449),
+        width: 80 * scaleX,
+        height: 22 * scaleY,
+        dateX: toPdfX(isCol2 ? 415 : 175),
+        dateY: toPdfY(424),
       },
-      // Slot 2: Head of Department (หัวหน้ากลุ่มสาระฯ) -> Dotted line at y = 593
+      // Slot 2: Head of Department (หัวหน้ากลุ่มสาระฯ) -> Dotted line at topY = 479
       dept_head: {
-        centerX: toPdfX(isCol2 ? 489 : 195),
-        centerY: toPdfY(582),
-        width: 70 * scaleX,
-        height: 20 * scaleY,
+        centerX: toPdfX(isCol2 ? 410 : 175),
+        centerY: toPdfY(479),
+        width: 80 * scaleX,
+        height: 22 * scaleY,
       },
       // Slot 3: Curriculum / Academic Affairs Head (งานพัฒนาคุณภาพการจัดการเรียนการสอน)
-      // Dotted line at y = 637, Parentheses at y = 659
+      // Dotted line at topY = 514
       curriculum_head: {
-        centerX: toPdfX(isCol2 ? 504 : 195),
-        centerY: toPdfY(626),
-        width: 70 * scaleX,
-        height: 20 * scaleY,
-        nameX: toPdfX(isCol2 ? 518 : 221.5),
-        nameY: toPdfY(659),
+        centerX: toPdfX(isCol2 ? 410 : 175),
+        centerY: toPdfY(514),
+        width: 80 * scaleX,
+        height: 22 * scaleY,
       },
       academic_head: {
-        centerX: toPdfX(isCol2 ? 504 : 195),
-        centerY: toPdfY(626),
-        width: 70 * scaleX,
-        height: 20 * scaleY,
-        nameX: toPdfX(isCol2 ? 518 : 221.5),
-        nameY: toPdfY(659),
+        centerX: toPdfX(isCol2 ? 410 : 175),
+        centerY: toPdfY(514),
+        width: 80 * scaleX,
+        height: 22 * scaleY,
       },
       // Slot 4: Vice Director for Academic Affairs (รองผู้อำนวยการฝ่ายวิชาการ)
-      // Comment line 1 at y = 725, Comment line 2 at y = 747
-      // Dotted line at y = 769, Parentheses at y = 787
+      // Comment lines at topY = 586 and 604, Dotted line at topY = 623
       academic_director: {
-        centerX: toPdfX(isCol2 ? 500 : 213),
-        centerY: toPdfY(760),
-        width: 70 * scaleX,
-        height: 20 * scaleY,
-        commentX: toPdfX(isCol2 ? 503 : 212.5),
-        commentY: toPdfY(722),
-        commentY2: toPdfY(744),
-        nameX: toPdfX(isCol2 ? 505 : 213),
-        nameY: toPdfY(787),
+        centerX: toPdfX(isCol2 ? 410 : 175),
+        centerY: toPdfY(623),
+        width: 80 * scaleX,
+        height: 22 * scaleY,
+        commentX: toPdfX(isCol2 ? 410 : 175),
+        commentY: toPdfY(586),
+        commentY2: toPdfY(604),
       },
       // Slot 5: School Director (ผู้อำนวยการโรงเรียนสระหลวงพิทยาคม)
-      // Dotted line at y = 835 -> centerY at y = 825
-      // "นางนิกูล ทองหน้าศาล" is preprinted on template without parentheses
+      // Dotted line at topY = 677
       director: {
-        centerX: toPdfX(isCol2 ? 505 : 213),
-        centerY: toPdfY(825),
-        width: 70 * scaleX,
-        height: 20 * scaleY,
+        centerX: toPdfX(isCol2 ? 410 : 175),
+        centerY: toPdfY(677),
+        width: 80 * scaleX,
+        height: 22 * scaleY,
       }
     };
+  }
+
+  /**
+   * Get pixel-to-PDF coordinate mapping for Page 2 (ตารางแสดงจุดเน้นการออกแบบการจัดกิจกรรมฯ นท.2)
+   * Reference template size is 595.32 x 841.92 pt (A4 standard)
+   */
+  getPage2SlotCoordinates(pageWidth, pageHeight) {
+    const scaleX = pageWidth / 595.32;
+    const scaleY = pageHeight / 841.92;
+
+    const toPdfX = (x) => x * scaleX;
+    const toPdfY = (topY) => pageHeight - (topY * scaleY);
+
+    return {
+      // Slot 1: ครูผู้สอน -> แถวที่ 1 ด้านขวา ระหว่าง 'ลงชื่อ' กับ 'ผู้สอน' เหนือ (นายเอกเทศ เพ็ชรวิจิตร) ครู
+      teacher: {
+        centerX: toPdfX(430),
+        centerY: toPdfY(609),
+        width: 100 * scaleX,
+        height: 25 * scaleY,
+      },
+      // Slot 2: หัวหน้ากลุ่มสาระการเรียนรู้ฯ -> แถวที่ 1 ด้านซ้าย เหนือ (นางวัชรี สุขสวัสดิ์)
+      dept_head: {
+        centerX: toPdfX(170),
+        centerY: toPdfY(608),
+        width: 100 * scaleX,
+        height: 25 * scaleY,
+      },
+      // Slot 3: หัวหน้างานหลักสูตร / งานพัฒนาคุณภาพการจัดการเรียนการสอนการสอน -> แถวที่ 2 ด้านซ้าย เหนือ (...................)
+      curriculum_head: {
+        centerX: toPdfX(165),
+        centerY: toPdfY(678),
+        width: 100 * scaleX,
+        height: 25 * scaleY,
+      },
+      academic_head: {
+        centerX: toPdfX(165),
+        centerY: toPdfY(678),
+        width: 100 * scaleX,
+        height: 25 * scaleY,
+      },
+      // Slot 4: รองผู้อำนวยการโรงเรียน กลุ่มบริหารวิชาการ -> แถวที่ 2 ด้านขวา เหนือ (นางสาวรัชนี ชูเมือง)
+      academic_director: {
+        centerX: toPdfX(430),
+        centerY: toPdfY(676),
+        width: 100 * scaleX,
+        height: 25 * scaleY,
+      },
+      // Slot 5: ผู้อำนวยการโรงเรียนสระหลวงพิทยาคม -> แถวล่างสุด ด้านขวา เหนือ (นางนิกูล ทองหน้าศาล)
+      director: {
+        centerX: toPdfX(440),
+        centerY: toPdfY(757),
+        width: 100 * scaleX,
+        height: 25 * scaleY,
+      }
+    };
+  }
+
+  /**
+   * Helper: Draw signature image onto designated slot with proper scaling
+   */
+  drawSignatureImage(page, slot, sigImage, fallbackText = null, thaiFont = null, helveticaBold = null) {
+    if (!page || !slot) return false;
+    if (sigImage) {
+      const dims = sigImage.scale(0.35);
+      const scale = Math.min(slot.width / dims.width, slot.height / dims.height, 1);
+      const renderW = dims.width * scale;
+      const renderH = dims.height * scale;
+
+      page.drawImage(sigImage, {
+        x: slot.centerX - (renderW / 2),
+        y: slot.centerY - (renderH / 2) + 2,
+        width: renderW,
+        height: renderH,
+      });
+      return true;
+    } else if (fallbackText) {
+      try {
+        if (thaiFont) {
+          page.drawText(fallbackText, {
+            x: slot.centerX - 35,
+            y: slot.centerY + 2,
+            size: 7,
+            font: thaiFont,
+            color: rgb(0.12, 0.35, 0.75),
+          });
+        } else if (helveticaBold) {
+          page.drawText('[e-Signed]', {
+            x: slot.centerX - 35,
+            y: slot.centerY + 2,
+            size: 7,
+            font: helveticaBold,
+            color: rgb(0.12, 0.35, 0.75),
+          });
+        }
+      } catch (e) {
+        // Safe skip text if encoding fails
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Helper: Draw reviewer name masked inside parentheses (e.g. for curriculum_head on Page 2)
+   */
+  drawReviewerNameInParentheses(page, slot, reviewerName, thaiFont) {
+    if (!page || !slot || !slot.nameY || !reviewerName || !thaiFont) return;
+    try {
+      const cleanName = reviewerName.replace(/[()]/g, '').trim();
+      const fontSize = 8.0;
+      const textW = thaiFont.widthOfTextAtSize(cleanName, fontSize);
+      const nameCenterX = slot.nameX || slot.centerX;
+
+      // Clean white mask over the dotted line inside the parentheses
+      page.drawRectangle({
+        x: nameCenterX - (textW / 2) - 4,
+        y: slot.nameY - 2,
+        width: textW + 8,
+        height: 12,
+        color: rgb(1, 1, 1),
+      });
+
+      page.drawText(cleanName, {
+        x: nameCenterX - (textW / 2),
+        y: slot.nameY,
+        size: fontSize,
+        font: thaiFont,
+        color: rgb(0.08, 0.12, 0.22),
+      });
+    } catch (err) {
+      console.warn('[PdfService] Error drawing name in parentheses on Page 2:', err.message);
+    }
   }
 
   /**
@@ -121,10 +246,13 @@ export class PdfService {
     try {
       pdfDoc.registerFontkit(fontkit);
       const fontCandidates = [
+        path.resolve(__dirname, '../../data/fonts/tahoma.ttf'),
         'C:/Windows/Fonts/tahoma.ttf',
         'C:/Windows/Fonts/cordia.ttf',
         'C:/Windows/Fonts/angsana.ttf',
-        'C:/Windows/Fonts/arial.ttf'
+        'C:/Windows/Fonts/arial.ttf',
+        '/usr/share/fonts/truetype/thai/tahoma.ttf',
+        '/usr/share/fonts/truetype/freefont/FreeSans.ttf'
       ];
       for (const fontPath of fontCandidates) {
         if (fs.existsSync(fontPath)) {
@@ -178,14 +306,14 @@ export class PdfService {
     let memoPage;
     const pages = pdfDoc.getPages();
 
-    if (isCol2 && fs.existsSync(certifiedPath) && pages.length > 0) {
-      // Use existing cover page
+    if (pages.length > 0) {
+      // Use existing first page (which already contains the formatted นท.1 memo form)
       memoPage = pages[0];
     } else if (fs.existsSync(templatePath)) {
       const templateBytes = fs.readFileSync(templatePath);
       const templateImage = await pdfDoc.embedPng(templateBytes);
 
-      // Prepend a pristine A4 Memo Page at the front (index 0)
+      // Prepend a pristine A4 Memo Page at the front if the PDF has no pages
       memoPage = pdfDoc.insertPage(0, [a4Width, a4Height]);
 
       memoPage.drawImage(templateImage, {
@@ -195,12 +323,7 @@ export class PdfService {
         height: a4Height,
       });
     } else {
-      // Fallback: use first page of existing document
-      if (pages.length === 0) {
-        memoPage = pdfDoc.addPage([a4Width, a4Height]);
-      } else {
-        memoPage = pages[0];
-      }
+      memoPage = pdfDoc.addPage([a4Width, a4Height]);
     }
 
     const { width, height } = memoPage.getSize();
@@ -246,6 +369,22 @@ export class PdfService {
       }
     }
 
+    // 1.1 Stamp Teacher Signature on Page 2 (ตารางจุดเน้นการจัดกิจกรรมฯ นท.2)
+    const allDocPages = pdfDoc.getPages();
+    if (allDocPages.length >= 2) {
+      const page2 = allDocPages[1];
+      const { width: p2W, height: p2H } = page2.getSize();
+      const p2Slots = this.getPage2SlotCoordinates(p2W, p2H);
+      this.drawSignatureImage(
+        page2,
+        p2Slots.teacher,
+        teacherSigImage,
+        teacherName ? `[e-Signed: ${teacherName}]` : null,
+        thaiFont,
+        helveticaBold
+      );
+    }
+
     // 2. Stamp Thai Date on Column 2 date dotted line
     const dateObj = new Date(signedAt);
     if (isCol2 && thaiFont) {
@@ -255,15 +394,15 @@ export class PdfService {
         const yearStr = String(dateObj.getFullYear() + 543);
         const fontSize = 8.0;
 
-        const scaleX = width / 723;
-        const scaleY = height / 1024;
+        const scaleX = width / 595.32;
+        const scaleY = height / 841.92;
         const toPdfX = (imgX) => imgX * scaleX;
         const toPdfY = (imgY) => height - (imgY * scaleY);
 
         const dayW = thaiFont.widthOfTextAtSize(dayStr, fontSize);
         memoPage.drawText(dayStr, {
-          x: toPdfX(432) - (dayW / 2),
-          y: toPdfY(525),
+          x: toPdfX(354) - (dayW / 2),
+          y: toPdfY(424),
           size: fontSize,
           font: thaiFont,
           color: rgb(0.08, 0.12, 0.22)
@@ -271,8 +410,8 @@ export class PdfService {
 
         const monthW = thaiFont.widthOfTextAtSize(monthStr, fontSize);
         memoPage.drawText(monthStr, {
-          x: toPdfX(505) - (monthW / 2),
-          y: toPdfY(525),
+          x: toPdfX(410) - (monthW / 2),
+          y: toPdfY(424),
           size: fontSize,
           font: thaiFont,
           color: rgb(0.08, 0.12, 0.22)
@@ -280,8 +419,8 @@ export class PdfService {
 
         const yearW = thaiFont.widthOfTextAtSize(yearStr, fontSize);
         memoPage.drawText(yearStr, {
-          x: toPdfX(580) - (yearW / 2),
-          y: toPdfY(525),
+          x: toPdfX(475) - (yearW / 2),
+          y: toPdfY(424),
           size: fontSize,
           font: thaiFont,
           color: rgb(0.08, 0.12, 0.22)
@@ -296,10 +435,11 @@ export class PdfService {
     const lastPage = allPages[allPages.length - 1];
     const lastPageSize = lastPage.getSize();
 
-    const badgeW = 240;
-    const badgeH = 95;
-    const badgeX = lastPageSize.width - badgeW - 25;
-    const badgeY = 30;
+    const isPage2Last = allPages.length <= 2;
+    const badgeW = isPage2Last ? 210 : 240;
+    const badgeH = isPage2Last ? 68 : 95;
+    const badgeX = isPage2Last ? 45 : (lastPageSize.width - badgeW - 25);
+    const badgeY = isPage2Last ? 16 : 30;
 
     lastPage.drawRectangle({
       x: badgeX,
@@ -308,41 +448,46 @@ export class PdfService {
       height: badgeH,
       color: rgb(0.97, 0.98, 1.0),
       borderColor: rgb(0.12, 0.35, 0.72),
-      borderWidth: 1.5,
+      borderWidth: 1.2,
     });
 
     lastPage.drawText('SA LUANG PITTAYAKHOM SCHOOL', {
-      x: badgeX + 12,
-      y: badgeY + badgeH - 16,
-      size: 8,
+      x: badgeX + 10,
+      y: badgeY + badgeH - 14,
+      size: 7.5,
       font: helveticaBold,
       color: rgb(0.12, 0.35, 0.72),
     });
 
     lastPage.drawText(`LESSON PLAN VERIFICATION: ${planId.substring(0, 8)}`, {
-      x: badgeX + 12,
-      y: badgeY + badgeH - 28,
-      size: 7,
-      font: helveticaFont(helveticaBold),
+      x: badgeX + 10,
+      y: badgeY + badgeH - 25,
+      size: 6.8,
+      font: helveticaBold,
       color: rgb(0.3, 0.4, 0.5),
     });
 
     lastPage.drawText(`Level: 1/5 Teacher Submission Verified`, {
-      x: badgeX + 12,
-      y: badgeY + badgeH - 42,
-      size: 7,
+      x: badgeX + 10,
+      y: badgeY + badgeH - 37,
+      size: 6.8,
       font: helveticaBold,
       color: rgb(0.05, 0.5, 0.25),
     });
 
     const timestampStr = dateObj.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
     lastPage.drawText(`Timestamp: ${timestampStr}`, {
-      x: badgeX + 12,
-      y: badgeY + 14,
-      size: 6.5,
+      x: badgeX + 10,
+      y: badgeY + (isPage2Last ? 8 : 14),
+      size: 6.0,
       font: helvetica,
       color: rgb(0.4, 0.4, 0.4),
     });
+
+    // Sync any previous/existing reviewer signatures to Page 2
+    if (planId) {
+      await this.syncAllSignaturesToPage2Internal(pdfDoc, planId, thaiFont, helveticaBold);
+    }
 
     // Save stamped PDF
     const outputPath = path.join(stampedDir, `${planId}_certified.pdf`);
@@ -431,6 +576,25 @@ export class PdfService {
       }
     }
 
+    // 1.1 Embed and Draw Reviewer's Signature on Page 2 (แบบ นท.2)
+    const allDocPages = pdfDoc.getPages();
+    if (allDocPages.length >= 2) {
+      const page2 = allDocPages[1];
+      const { width: p2W, height: p2H } = page2.getSize();
+      const p2Slots = this.getPage2SlotCoordinates(p2W, p2H);
+      const p2Slot = p2Slots[stageKey];
+      if (p2Slot) {
+        this.drawSignatureImage(
+          page2,
+          p2Slot,
+          sigImage,
+          reviewerName ? `[e-Signed: ${toAsciiSafe(reviewerName, 'Reviewer')}]` : null,
+          thaiFont,
+          helveticaBold
+        );
+      }
+    }
+
     // 2. Print reviewer full Thai name inside the existing parentheses on the template
     //    Template already has ( and ) printed - just insert the name text between them, no extra brackets
     if (slot.nameY && reviewerName) {
@@ -489,16 +653,16 @@ export class PdfService {
             });
           }
 
-            if (slot.commentY2 && line2) {
-              const w2 = thaiFont.widthOfTextAtSize(line2, 6.8);
-              memoPage.drawText(line2, {
-                x: commentCenterX - (w2 / 2),
-                y: slot.commentY2,
-                size: 6.8,
-                font: thaiFont,
-                color: rgb(0.15, 0.2, 0.3),
-              });
-            }
+          if (slot.commentY2 && line2) {
+            const w2 = thaiFont.widthOfTextAtSize(line2, 6.8);
+            memoPage.drawText(line2, {
+              x: commentCenterX - (w2 / 2),
+              y: slot.commentY2,
+              size: 6.8,
+              font: thaiFont,
+              color: rgb(0.15, 0.2, 0.3),
+            });
+          }
         } else {
           const asciiComment = toAsciiSafe(cleanFeedback, 'Verified: Approved syllabus.');
           memoPage.drawText(asciiComment, {
@@ -516,29 +680,138 @@ export class PdfService {
 
     // 3. Update the audit badge on the last page
     const lastPage = pages[pages.length - 1];
+    const lastPageSize = lastPage.getSize();
+    const isPage2Last = pages.length <= 2;
+    const badgeW = isPage2Last ? 210 : 240;
+    const badgeH = isPage2Last ? 68 : 95;
+    const badgeX = isPage2Last ? 45 : (lastPageSize.width - badgeW - 25);
+    const badgeY = isPage2Last ? 16 : 30;
+
     const dateObj = new Date(signedAt);
     const timestampStr = dateObj.toISOString().replace('T', ' ').substring(0, 19);
 
-    // Add approval stamp entry on last page
-    const badgeW = 240;
-    const badgeH = 95;
-    const badgeX = lastPage.getSize().width - badgeW - 25;
-    const badgeY = 30;
+    const stageLabels = {
+      dept_head: 'Dept Head',
+      curriculum_head: 'Curriculum',
+      academic_head: 'Curriculum',
+      academic_director: 'Academic Vice Dir',
+      director: 'School Director'
+    };
+    const stageLabel = stageLabels[stageKey] || stageKey;
 
-    // Small indicator on badge
-    lastPage.drawText(`Approved: ${stageKey} (${timestampStr})`, {
-      x: badgeX + 12,
-      y: badgeY + 24,
-      size: 6,
-      font: helvetica,
+    // Mask latest approval line cleanly
+    lastPage.drawRectangle({
+      x: badgeX + 8,
+      y: badgeY + (isPage2Last ? 6 : 22),
+      width: badgeW - 16,
+      height: 12,
+      color: rgb(0.97, 0.98, 1.0),
+    });
+
+    lastPage.drawText(`Approved: ${stageLabel} (${timestampStr})`, {
+      x: badgeX + 10,
+      y: badgeY + (isPage2Last ? 8 : 24),
+      size: 5.8,
+      font: helveticaBold,
       color: rgb(0.1, 0.4, 0.2),
     });
+
+    // 4. Ensure all signatures for this plan (Teacher + all approved Reviewers) are on Page 2
+    try {
+      await this.syncAllSignaturesToPage2Internal(pdfDoc, planId, thaiFont, helveticaBold);
+    } catch (syncErr) {
+      console.warn('[PdfService] syncAllSignaturesToPage2 error:', syncErr.message);
+    }
 
     const updatedBytes = await pdfDoc.save();
     fs.writeFileSync(targetPath, updatedBytes);
 
-    console.log(`[PdfService] Successfully stamped ${stageKey} signature into designated memo slot for plan ${planId}`);
+    console.log(`[PdfService] Successfully stamped ${stageKey} signature into designated memo slot and Page 2 for plan ${planId}`);
     return targetPath;
+  }
+
+  /**
+   * Internal helper: Sync all available signatures for planId onto Page 2 (นท.2)
+   */
+  async syncAllSignaturesToPage2Internal(pdfDoc, planId, thaiFont = null, helveticaBold = null) {
+    if (!pdfDoc || !planId) return false;
+    const pages = pdfDoc.getPages();
+    if (pages.length < 2) return false;
+
+    const page2 = pages[1];
+    const { width: p2W, height: p2H } = page2.getSize();
+    const p2Slots = this.getPage2SlotCoordinates(p2W, p2H);
+
+    try {
+      // 1. Teacher signature from lesson_plans
+      const plan = await db.get(
+        'SELECT signature_data, round_2_signature, teacher_name FROM lesson_plans WHERE id = ?',
+        [planId]
+      );
+      if (plan) {
+        const teacherSig = plan.signature_data || plan.round_2_signature;
+        if (teacherSig) {
+          const teacherSigImg = await this.embedSignature(pdfDoc, teacherSig);
+          if (teacherSigImg) {
+            this.drawSignatureImage(page2, p2Slots.teacher, teacherSigImg, null, thaiFont, helveticaBold);
+          }
+        }
+      }
+
+      // 2. Reviewer signatures from approval_timeline
+      const timelineRows = await db.query(
+        `SELECT stage_key, reviewer_name, reviewer_role, reviewer_signature 
+         FROM approval_timeline 
+         WHERE lesson_plan_id = ? AND status = 'completed' AND reviewer_signature IS NOT NULL
+         ORDER BY step_order ASC`,
+        [planId]
+      );
+
+      if (timelineRows && timelineRows.length > 0) {
+        for (const row of timelineRows) {
+          const targetSlot = p2Slots[row.stage_key];
+          if (targetSlot && row.reviewer_signature) {
+            const rowSigImg = await this.embedSignature(pdfDoc, row.reviewer_signature);
+            if (rowSigImg) {
+              this.drawSignatureImage(page2, targetSlot, rowSigImg, null, thaiFont, helveticaBold);
+            }
+          }
+        }
+      }
+      return true;
+    } catch (dbErr) {
+      console.warn(`[PdfService] Error syncing signatures from DB to Page 2 for plan ${planId}:`, dbErr.message);
+      return false;
+    }
+  }
+
+  /**
+   * Public helper: Sync and stamp all recorded signatures (Teacher + All Reviewers) onto Page 2
+   */
+  async syncAllSignaturesToPage2(planId) {
+    const targetPath = path.join(stampedDir, `${planId}_certified.pdf`);
+    if (!fs.existsSync(targetPath)) return null;
+
+    try {
+      const pdfBytes = fs.readFileSync(targetPath);
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+      const pages = pdfDoc.getPages();
+      if (pages.length < 2) return targetPath;
+
+      const thaiFont = await this.getThaiFont(pdfDoc);
+      const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+      const synced = await this.syncAllSignaturesToPage2Internal(pdfDoc, planId, thaiFont, helveticaBold);
+      if (synced) {
+        const updatedBytes = await pdfDoc.save();
+        fs.writeFileSync(targetPath, updatedBytes);
+        console.log(`[PdfService] Successfully synced all signatures onto Page 2 for plan ${planId}`);
+      }
+      return targetPath;
+    } catch (err) {
+      console.warn(`[PdfService] Failed to sync signatures to Page 2 for plan ${planId}:`, err.message);
+      return targetPath;
+    }
   }
 }
 

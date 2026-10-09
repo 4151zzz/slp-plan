@@ -727,6 +727,27 @@ async function handleFormSubmit(e) {
           height: renderH
         });
 
+        // Stamp Teacher Signature on Page 2 (แบบ นท.2)
+        if (pages.length >= 2) {
+          try {
+            const page2 = pages[1];
+            const p2ScaleX = page2.getWidth() / 595.32;
+            const p2ScaleY = page2.getHeight() / 841.92;
+            const p2X = 430 * p2ScaleX;
+            const p2Y = page2.getHeight() - (609 * p2ScaleY);
+            const p2W = 100 * p2ScaleX;
+            const p2H = 25 * p2ScaleY;
+            page2.drawImage(sigImage, {
+              x: p2X - (p2W / 2),
+              y: p2Y - (p2H / 2) + 2,
+              width: p2W,
+              height: p2H
+            });
+          } catch (p2Err) {
+            console.warn('Client teacher stamp on Page 2 notice:', p2Err);
+          }
+        }
+
         // Save stamped PDF
         const stampedPdfBytes = await pdfDoc.save();
         fileToUpload = new File([stampedPdfBytes], currentSelectedFile.name, { type: 'application/pdf' });
@@ -2082,17 +2103,17 @@ async function submitReviewAction(action) {
         if (pages.length > 0) {
           const targetPage = pages[0];
           const isCol2 = targetRound === 2;
-          const scaleX = targetPage.getWidth() / 723;
-          const scaleY = targetPage.getHeight() / 1024;
+          const scaleX = targetPage.getWidth() / 595.32;
+          const scaleY = targetPage.getHeight() / 841.92;
           const toPdfX = (imgX) => imgX * scaleX;
           const toPdfY = (imgY) => targetPage.getHeight() - (imgY * scaleY);
 
           const stageSlots = {
-            dept_head: { x: isCol2 ? 489 : 195, y: 582 },
-            curriculum_head: { x: isCol2 ? 504 : 195, y: 626 },
-            academic_head: { x: isCol2 ? 504 : 195, y: 626 },
-            academic_director: { x: isCol2 ? 500 : 213, y: 760 },
-            director: { x: isCol2 ? 505 : 213, y: 825 }
+            dept_head: { x: isCol2 ? 410 : 175, y: 479 },
+            curriculum_head: { x: isCol2 ? 410 : 175, y: 514 },
+            academic_head: { x: isCol2 ? 410 : 175, y: 514 },
+            academic_director: { x: isCol2 ? 410 : 175, y: 623 },
+            director: { x: isCol2 ? 410 : 175, y: 677 }
           };
 
           const slot = stageSlots[currentStage] || stageSlots['dept_head'];
@@ -2114,6 +2135,36 @@ async function submitReviewAction(action) {
             width: renderW,
             height: renderH
           });
+
+          // Stamp reviewer signature onto Page 2 (แบบ นท.2)
+          if (pages.length >= 2) {
+            try {
+              const page2 = pages[1];
+              const p2ScaleX = page2.getWidth() / 595.32;
+              const p2ScaleY = page2.getHeight() / 841.92;
+              const p2ToPdfX = (x) => x * p2ScaleX;
+              const p2ToPdfY = (topY) => page2.getHeight() - (topY * p2ScaleY);
+
+              const page2Slots = {
+                teacher: { x: p2ToPdfX(430), y: p2ToPdfY(609), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
+                dept_head: { x: p2ToPdfX(170), y: p2ToPdfY(608), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
+                curriculum_head: { x: p2ToPdfX(165), y: p2ToPdfY(678), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
+                academic_head: { x: p2ToPdfX(165), y: p2ToPdfY(678), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
+                academic_director: { x: p2ToPdfX(430), y: p2ToPdfY(676), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
+                director: { x: p2ToPdfX(440), y: p2ToPdfY(757), w: 100 * p2ScaleX, h: 25 * p2ScaleY }
+              };
+
+              const p2Slot = page2Slots[currentStage] || page2Slots['dept_head'];
+              page2.drawImage(sigImg, {
+                x: p2Slot.x - (p2Slot.w / 2),
+                y: p2Slot.y - (p2Slot.h / 2) + 2,
+                width: p2Slot.w,
+                height: p2Slot.h
+              });
+            } catch (p2Err) {
+              console.warn('Client stamp on Page 2 notice:', p2Err);
+            }
+          }
 
           // If academic_director approved, also stamp their recommendation text onto the dotted lines
           if (currentStage === 'academic_director' && feedback) {
@@ -2416,6 +2467,27 @@ async function submitRound2Quick() {
           width: renderW,
           height: renderH
         });
+
+        // Stamp Teacher Signature on Page 2 (แบบ นท.2)
+        if (pages.length >= 2) {
+          try {
+            const page2 = pages[1];
+            const p2ScaleX = page2.getWidth() / 595.32;
+            const p2ScaleY = page2.getHeight() / 841.92;
+            const p2X = 430 * p2ScaleX;
+            const p2Y = page2.getHeight() - (609 * p2ScaleY);
+            const p2W = 100 * p2ScaleX;
+            const p2H = 25 * p2ScaleY;
+            page2.drawImage(sigImage, {
+              x: p2X - (p2W / 2),
+              y: p2Y - (p2H / 2) + 2,
+              width: p2W,
+              height: p2H
+            });
+          } catch (p2Err) {
+            console.warn('Client R2 teacher stamp on Page 2 notice:', p2Err);
+          }
+        }
 
         const stampedPdfBytes = await pdfDoc.save();
         fileToUpload = new File([stampedPdfBytes], file.name, { type: 'application/pdf' });

@@ -1824,6 +1824,13 @@ app.get('/api/files/download/:id', async (req, res) => {
     const plan = await db.get(`SELECT * FROM lesson_plans WHERE id = ?`, [req.params.id]);
     if (!plan) return res.status(404).send('ไม่พบไฟล์');
 
+    // Ensure all recorded signatures are synced onto Page 2
+    try {
+      await pdfService.syncAllSignaturesToPage2(req.params.id);
+    } catch (syncErr) {
+      console.warn('[Download] syncAllSignaturesToPage2 error:', syncErr.message);
+    }
+
     const targetPath = plan.stamped_file_path || plan.local_file_path;
     if (targetPath && fs.existsSync(targetPath)) {
       res.download(targetPath, `[Certified]_${plan.file_original_name || 'lesson_plan.pdf'}`);
@@ -1840,6 +1847,13 @@ app.get('/api/files/view-stamped/:id', async (req, res) => {
     const plan = await db.get(`SELECT * FROM lesson_plans WHERE id = ?`, [req.params.id]);
     if (!plan) return res.status(404).send('ไม่พบไฟล์');
 
+    // Ensure all recorded signatures are synced onto Page 2
+    try {
+      await pdfService.syncAllSignaturesToPage2(req.params.id);
+    } catch (syncErr) {
+      console.warn('[ViewStamped] syncAllSignaturesToPage2 error:', syncErr.message);
+    }
+
     const targetPath = plan.stamped_file_path || plan.local_file_path;
     if (targetPath && fs.existsSync(targetPath)) {
       res.contentType('application/pdf');
@@ -1849,6 +1863,19 @@ app.get('/api/files/view-stamped/:id', async (req, res) => {
     }
   } catch (err) {
     res.status(500).send(err.message);
+  }
+});
+
+// Endpoint to manually or programmatically sync all signatures onto Page 2
+app.post('/api/admin/plans/:id/sync-page2', async (req, res) => {
+  try {
+    const updatedPath = await pdfService.syncAllSignaturesToPage2(req.params.id);
+    if (!updatedPath) {
+      return res.status(404).json({ success: false, message: 'ไม่พบไฟล์ที่รับรองของแผนนี้' });
+    }
+    res.json({ success: true, message: 'ซิงค์ลายเซ็นทั้งหมดลงในหน้าที่ 2 เรียบร้อยแล้ว' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
