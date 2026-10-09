@@ -21,6 +21,8 @@ data/*.log
 Thumbs.db
 .vscode/
 .idea/
+~$*
+scratch/
 
 # Generated test and preview PDFs
 public/*_preview.pdf
