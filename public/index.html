@@ -3,8 +3,53 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ระบบส่งแผนการสอนออนไลน์ (Lesson Plan Submission Portal)</title>
-  <meta name="description" content="ระบบส่งแผนการสอนออนไลน์ รองรับการลงชื่ออิเล็กทรอนิกส์ การตรวจสอบการส่งซ้ำ และการสำรองข้อมูลขึ้น Google Drive อัตโนมัติ">
+  <title>ระบบส่งแผนการสอนออนไลน์ โรงเรียนสระหลวงพิทยาคม (SLP Lesson Plan Portal)</title>
+  
+  <!-- Primary Meta Tags -->
+  <meta name="title" content="ระบบส่งแผนการสอนออนไลน์ โรงเรียนสระหลวงพิทยาคม (SLP Lesson Plan Portal)">
+  <meta name="description" content="ระบบส่งและตรวจประเมินแผนการจัดการเรียนรู้ออนไลน์ โรงเรียนสระหลวงพิทยาคม จังหวัดพิจิตร รองรับการลงลายมือชื่อดิจิทัล 5 ลำดับขั้น (แบบ นท.1 และ นท.2) ตรวจสอบความถูกต้องและจัดเก็บอัตโนมัติ">
+  <meta name="keywords" content="โรงเรียนสระหลวงพิทยาคม, ส่งแผนการสอน, แผนการจัดการเรียนรู้, สระหลวง, สระหลวงพิทยาคม, พิจิตร, ระบบส่งแผนออนไลน์, บันทึกข้อความ นท.1, นท.2, Sa Luang Pittayakhom School, SLP, slp-plan, ส่งแผน สระหลวง">
+  <meta name="author" content="โรงเรียนสระหลวงพิทยาคม">
+  <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+  <meta name="theme-color" content="#1e3a8a">
+
+  <!-- Open Graph / Facebook / LINE -->
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="th_TH">
+  <meta property="og:site_name" content="โรงเรียนสระหลวงพิทยาคม (Sa Luang Pittayakhom School)">
+  <meta property="og:title" content="ระบบส่งแผนการสอนออนไลน์ โรงเรียนสระหลวงพิทยาคม">
+  <meta property="og:description" content="ระบบส่งและตรวจประเมินแผนการจัดการเรียนรู้ออนไลน์ รองรับการลงชื่ออิเล็กทรอนิกส์ 5 ลำดับขั้น และสำรองข้อมูลอัตโนมัติ">
+  <meta property="og:image" content="images/school-logo.png">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="ระบบส่งแผนการสอนออนไลน์ โรงเรียนสระหลวงพิทยาคม">
+  <meta name="twitter:description" content="ระบบส่งและตรวจประเมินแผนการจัดการเรียนรู้ออนไลน์ รองรับการลงชื่ออิเล็กทรอนิกส์ 5 ลำดับขั้น โรงเรียนสระหลวงพิทยาคม">
+  <meta name="twitter:image" content="images/school-logo.png">
+
+  <!-- Structured Data (JSON-LD) for Google Search Engine -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "ระบบส่งแผนการสอนออนไลน์ โรงเรียนสระหลวงพิทยาคม",
+    "alternateName": "SLP Lesson Plan Submission Portal",
+    "description": "ระบบส่งและตรวจประเมินแผนการจัดการเรียนรู้ออนไลน์ รองรับการลงชื่ออิเล็กทรอนิกส์ 5 ลำดับขั้น (แบบ นท.1 และ นท.2) โรงเรียนสระหลวงพิทยาคม จังหวัดพิจิตร",
+    "applicationCategory": "EducationalApplication",
+    "operatingSystem": "All",
+    "provider": {
+      "@type": "EducationalOrganization",
+      "name": "โรงเรียนสระหลวงพิทยาคม",
+      "alternateName": "Sa Luang Pittayakhom School",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "เมืองพิจิตร",
+        "addressRegion": "พิจิตร",
+        "addressCountry": "TH"
+      }
+    }
+  }
+  </script>
   
   <!-- Google Fonts: Prompt & Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -26,7 +71,6 @@
 
   <!-- Universal API Adapter -->
   <script src="js/api-adapter.js"></script>
-
 
   <!-- School Favicon -->
   <link rel="icon" type="image/png" href="images/logo.png">
@@ -90,9 +134,9 @@
          ========================================================= -->
     <section id="panelSubmit" class="tab-panel active">
       <div class="hero-banner">
-        <h1 class="hero-title" id="formHeaderTitle">ส่งแผนการสอนประจำภาคเรียน</h1>
+        <h1 class="hero-title" id="formHeaderTitle">ระบบส่งแผนการสอนออนไลน์ โรงเรียนสระหลวงพิทยาคม</h1>
         <p class="hero-desc">
-          กรุณากรอกข้อมูลรายวิชา แนบไฟล์แผนการสอน (PDF) พร้อมลงลายมือชื่ออิเล็กทรอนิกส์เพื่อรับรองความถูกต้อง ระบบจะดำเนินการประทับตรารับรองและสำรองขึ้น Google Drive โดยอัตโนมัติ
+          ระบบส่งและตรวจประเมินแผนการจัดการเรียนรู้ออนไลน์ โรงเรียนสระหลวงพิทยาคม จังหวัดพิจิตร กรุณากรอกข้อมูลรายวิชา แนบไฟล์แผนการสอน (PDF) พร้อมลงลายมือชื่ออิเล็กทรอนิกส์เพื่อรับรองความถูกต้อง ระบบจะดำเนินการประทับตรารับรอง 5 ลำดับขั้นและสำรองขึ้น Google Drive โดยอัตโนมัติ
         </p>
       </div>
 

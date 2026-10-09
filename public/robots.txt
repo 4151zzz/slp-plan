@@ -1,0 +1,18 @@
+# Robots.txt for Sa Luang Pittayakhom School - Lesson Plan Submission Portal
+User-agent: *
+Allow: /
+Allow: /index.html
+Allow: /login.html
+Allow: /css/
+Allow: /js/
+Allow: /images/
+
+# Disallow internal backend APIs and sensitive credentials from search indexing
+Disallow: /api/
+Disallow: /credentials/
+
+# Crawl Delay
+Crawl-delay: 1
+
+# Sitemap Location
+Sitemap: /sitemap.xml
