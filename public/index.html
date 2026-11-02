@@ -138,6 +138,14 @@
         <p class="hero-desc">
           ระบบส่งและตรวจประเมินแผนการจัดการเรียนรู้ออนไลน์ โรงเรียนสระหลวงพิทยาคม จังหวัดพิจิตร กรุณากรอกข้อมูลรายวิชา แนบไฟล์แผนการสอน (PDF) พร้อมลงลายมือชื่ออิเล็กทรอนิกส์เพื่อรับรองความถูกต้อง ระบบจะดำเนินการประทับตรารับรอง 5 ลำดับขั้นและสำรองขึ้น Google Drive โดยอัตโนมัติ
         </p>
+        <div style="margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+          <a href="templates/เทมเพลต_นท1_นท2.docx" download="เทมเพลต_นท1_นท2.docx" class="btn btn-sm" style="background: #ffffff; color: #1e40af; border: 1.5px solid #93c5fd; font-weight: 700; padding: 8px 16px; border-radius: 999px; box-shadow: 0 2px 6px rgba(30, 64, 175, 0.12); display: inline-flex; align-items: center; gap: 8px; text-decoration: none;">
+            <i class="fa-solid fa-file-word" style="color: #2563eb; font-size: 1rem;"></i> ดาวน์โหลดเทมเพลต นท.1 - นท.2 (.docx)
+          </a>
+          <span style="font-size: 0.8rem; opacity: 0.9;">
+            <i class="fa-solid fa-circle-check"></i> แบบฟอร์มมาตรฐานสำหรับครูผู้สอนทุกคน (แก้ไขข้อมูลแล้วบันทึกเป็น PDF เพื่อนำส่ง)
+          </span>
+        </div>
       </div>
 
       <!-- Editing Mode Notice Banner -->
@@ -321,7 +329,12 @@
                 <div class="card-subtitle">รองรับไฟล์รูปแบบ PDF ขนาดไม่เกิน 50 MB ระบบจะสำรองขึ้น Google Drive อัตโนมัติ</div>
               </div>
             </div>
-            <span id="pdfPageInfo" class="badge badge-draft">รอแนบไฟล์</span>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <a href="templates/เทมเพลต_นท1_นท2.docx" download="เทมเพลต_นท1_นท2.docx" class="btn btn-sm btn-outline" style="border-color: #2563eb; color: #2563eb; font-weight: 600;" title="ดาวน์โหลดไฟล์แม่แบบ Word นท.1 และ นท.2">
+                <i class="fa-solid fa-file-word"></i> ดาวน์โหลดเทมเพลต (.docx)
+              </a>
+              <span id="pdfPageInfo" class="badge badge-draft">รอแนบไฟล์</span>
+            </div>
           </div>
 
           <div class="step-card-body">
@@ -1004,6 +1017,6 @@
     </div>
   </footer>
 
-  <script src="js/app.js?v=20261002_07"></script>
+  <script src="js/app.js?v=20261102_06"></script>
 </body>
 </html>

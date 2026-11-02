@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function testLockingSignatures() {
-  const targetPdf = path.resolve(__dirname, 'เทส.pdf');
+  const targetPdf = path.resolve(__dirname, 'เทมเพลต_นท1_นท2 (1) เทส.pdf');
   const sigsPath = path.resolve(__dirname, '../data/templates/sample_signatures.json');
   const signatures = JSON.parse(fs.readFileSync(sigsPath, 'utf8'));
 
@@ -30,7 +30,7 @@ async function testLockingSignatures() {
   }
 
   const pages = pdfDoc.getPages();
-  console.log(`Original page count in เทส.pdf: ${pages.length}`);
+  console.log(`Original page count in เทมเพลต_นท1_นท2 (1) เทส.pdf: ${pages.length}`);
 
   const p1 = pages[0];
   const { width: p1W, height: p1H } = p1.getSize();
@@ -39,21 +39,21 @@ async function testLockingSignatures() {
   const toPdf1X = (x) => x * scale1X;
   const toPdf1Y = (topY) => p1H - (topY * scale1Y);
 
-  // Locked coordinates for Page 1 based on real layout
+  // Locked coordinates for Page 1 based on เทมเพลต_นท1_นท2 (1) เทส.pdf
   const p1SlotsCol1 = {
-    teacher: { centerX: toPdf1X(170), centerY: toPdf1Y(449), width: 80 * scale1X, height: 22 * scale1Y },
-    dept_head: { centerX: toPdf1X(175), centerY: toPdf1Y(479), width: 80 * scale1X, height: 22 * scale1Y },
-    curriculum_head: { centerX: toPdf1X(175), centerY: toPdf1Y(514), width: 80 * scale1X, height: 22 * scale1Y },
-    academic_director: { centerX: toPdf1X(175), centerY: toPdf1Y(623), width: 80 * scale1X, height: 22 * scale1Y },
-    director: { centerX: toPdf1X(175), centerY: toPdf1Y(677), width: 80 * scale1X, height: 22 * scale1Y }
+    teacher: { centerX: toPdf1X(170), centerY: toPdf1Y(425), width: 80 * scale1X, height: 22 * scale1Y },
+    dept_head: { centerX: toPdf1X(185), centerY: toPdf1Y(448), width: 80 * scale1X, height: 22 * scale1Y },
+    curriculum_head: { centerX: toPdf1X(185), centerY: toPdf1Y(483), width: 80 * scale1X, height: 22 * scale1Y },
+    academic_director: { centerX: toPdf1X(185), centerY: toPdf1Y(599), width: 80 * scale1X, height: 22 * scale1Y },
+    director: { centerX: toPdf1X(185), centerY: toPdf1Y(642), width: 80 * scale1X, height: 22 * scale1Y }
   };
 
   const p1SlotsCol2 = {
-    teacher: { centerX: toPdf1X(410), centerY: toPdf1Y(449), width: 80 * scale1X, height: 22 * scale1Y },
-    dept_head: { centerX: toPdf1X(410), centerY: toPdf1Y(479), width: 80 * scale1X, height: 22 * scale1Y },
-    curriculum_head: { centerX: toPdf1X(410), centerY: toPdf1Y(514), width: 80 * scale1X, height: 22 * scale1Y },
-    academic_director: { centerX: toPdf1X(410), centerY: toPdf1Y(623), width: 80 * scale1X, height: 22 * scale1Y },
-    director: { centerX: toPdf1X(410), centerY: toPdf1Y(677), width: 80 * scale1X, height: 22 * scale1Y }
+    teacher: { centerX: toPdf1X(411), centerY: toPdf1Y(425), width: 80 * scale1X, height: 22 * scale1Y },
+    dept_head: { centerX: toPdf1X(426), centerY: toPdf1Y(448), width: 80 * scale1X, height: 22 * scale1Y },
+    curriculum_head: { centerX: toPdf1X(426), centerY: toPdf1Y(483), width: 80 * scale1X, height: 22 * scale1Y },
+    academic_director: { centerX: toPdf1X(426), centerY: toPdf1Y(599), width: 80 * scale1X, height: 22 * scale1Y },
+    director: { centerX: toPdf1X(426), centerY: toPdf1Y(642), width: 80 * scale1X, height: 22 * scale1Y }
   };
 
   // Stamp Page 1 Col 1 & Col 2
@@ -93,20 +93,18 @@ async function testLockingSignatures() {
     }
   }
 
-  // Stamp Thai Date Col 2
-  if (thaiFont) {
-    p1.drawText('21', { x: toPdf1X(354), y: toPdf1Y(424), size: 8, font: thaiFont, color: rgb(0.08, 0.12, 0.22) });
-    p1.drawText('พฤษภาคม', { x: toPdf1X(410), y: toPdf1Y(424), size: 8, font: thaiFont, color: rgb(0.08, 0.12, 0.22) });
-    p1.drawText('2569', { x: toPdf1X(475), y: toPdf1Y(424), size: 8, font: thaiFont, color: rgb(0.08, 0.12, 0.22) });
-  }
-
   // Stamp Academic Director comment on dotted lines Col 1 & 2
   if (thaiFont) {
-    p1.drawText('เห็นชอบตามเสนอ', { x: toPdf1X(135), y: toPdf1Y(586), size: 7.5, font: thaiFont, color: rgb(0.15, 0.2, 0.3) });
-    p1.drawText('สามารถนำไปใช้ในการจัดการเรียนรู้ได้', { x: toPdf1X(110), y: toPdf1Y(604), size: 7.0, font: thaiFont, color: rgb(0.15, 0.2, 0.3) });
+    const line1Text = 'เห็นชอบตามเสนอ';
+    const line2Text = 'สามารถนำไปใช้ในการจัดการเรียนรู้ได้';
+    const w1 = thaiFont.widthOfTextAtSize(line1Text, 8.0);
+    const w2 = thaiFont.widthOfTextAtSize(line2Text, 7.5);
 
-    p1.drawText('เห็นชอบตามเสนอ', { x: toPdf1X(375), y: toPdf1Y(586), size: 7.5, font: thaiFont, color: rgb(0.15, 0.2, 0.3) });
-    p1.drawText('สามารถนำไปใช้ในการจัดการเรียนรู้ได้', { x: toPdf1X(350), y: toPdf1Y(604), size: 7.0, font: thaiFont, color: rgb(0.15, 0.2, 0.3) });
+    p1.drawText(line1Text, { x: toPdf1X(175) - (w1 / 2), y: toPdf1Y(560), size: 8.0, font: thaiFont, color: rgb(0.15, 0.2, 0.3) });
+    p1.drawText(line2Text, { x: toPdf1X(175) - (w2 / 2), y: toPdf1Y(578), size: 7.5, font: thaiFont, color: rgb(0.15, 0.2, 0.3) });
+
+    p1.drawText(line1Text, { x: toPdf1X(417) - (w1 / 2), y: toPdf1Y(560), size: 8.0, font: thaiFont, color: rgb(0.15, 0.2, 0.3) });
+    p1.drawText(line2Text, { x: toPdf1X(417) - (w2 / 2), y: toPdf1Y(578), size: 7.5, font: thaiFont, color: rgb(0.15, 0.2, 0.3) });
   }
 
   // Page 2 - นท.2
@@ -118,11 +116,11 @@ async function testLockingSignatures() {
   const toPdf2Y = (topY) => p2H - (topY * scale2Y);
 
   const p2Slots = {
-    teacher: { centerX: toPdf2X(430), centerY: toPdf2Y(609), width: 100 * scale2X, height: 25 * scale2Y },
-    dept_head: { centerX: toPdf2X(170), centerY: toPdf2Y(608), width: 100 * scale2X, height: 25 * scale2Y },
-    curriculum_head: { centerX: toPdf2X(165), centerY: toPdf2Y(678), width: 100 * scale2X, height: 25 * scale2Y, nameX: toPdf2X(165), nameY: toPdf2Y(701) },
-    academic_director: { centerX: toPdf2X(430), centerY: toPdf2Y(676), width: 100 * scale2X, height: 25 * scale2Y },
-    director: { centerX: toPdf2X(440), centerY: toPdf2Y(757), width: 100 * scale2X, height: 25 * scale2Y }
+    teacher: { centerX: toPdf2X(426), centerY: toPdf2Y(530), width: 100 * scale2X, height: 25 * scale2Y },
+    dept_head: { centerX: toPdf2X(187), centerY: toPdf2Y(530), width: 100 * scale2X, height: 25 * scale2Y },
+    curriculum_head: { centerX: toPdf2X(187), centerY: toPdf2Y(586), width: 100 * scale2X, height: 25 * scale2Y },
+    academic_director: { centerX: toPdf2X(440), centerY: toPdf2Y(586), width: 100 * scale2X, height: 25 * scale2Y },
+    director: { centerX: toPdf2X(440), centerY: toPdf2Y(642), width: 100 * scale2X, height: 25 * scale2Y }
   };
 
   for (const [role, slot] of Object.entries(p2Slots)) {

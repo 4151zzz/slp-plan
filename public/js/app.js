@@ -706,8 +706,8 @@ async function handleFormSubmit(e) {
 
         // Stamp Teacher Signature in Column 1 or 2
         const isCol2 = subRound === 2;
-        const scaleX = targetPage.getWidth() / 723;
-        const scaleY = targetPage.getHeight() / 1024;
+        const scaleX = targetPage.getWidth() / 595.32;
+        const scaleY = targetPage.getHeight() / 841.92;
         const toPdfX = (imgX) => imgX * scaleX;
         const toPdfY = (imgY) => targetPage.getHeight() - (imgY * scaleY);
 
@@ -715,10 +715,10 @@ async function handleFormSubmit(e) {
         const sigPngBytes = base64ToUint8Array(signatureData);
         const sigImage = await pdfDoc.embedPng(sigPngBytes);
 
-        const sigSlotX = toPdfX(isCol2 ? 502 : 195);
-        const sigSlotY = toPdfY(550);
-        const renderW = 75 * scaleX;
-        const renderH = 25 * scaleY;
+        const sigSlotX = toPdfX(isCol2 ? 411 : 170);
+        const sigSlotY = toPdfY(425);
+        const renderW = 80 * scaleX;
+        const renderH = 22 * scaleY;
 
         targetPage.drawImage(sigImage, {
           x: sigSlotX - (renderW / 2),
@@ -727,14 +727,14 @@ async function handleFormSubmit(e) {
           height: renderH
         });
 
-        // Stamp Teacher Signature on Page 2 (แบบ นท.2)
-        if (pages.length >= 2) {
+        // Stamp Teacher Signature on Page 2 (แบบ นท.2) - เฉพาะครั้งที่ 1 เท่านั้น (ครั้งที่ 2 ไม่เซ็นหน้า 2 ซ้ำ)
+        if (!isCol2 && pages.length >= 2) {
           try {
             const page2 = pages[1];
             const p2ScaleX = page2.getWidth() / 595.32;
             const p2ScaleY = page2.getHeight() / 841.92;
-            const p2X = 430 * p2ScaleX;
-            const p2Y = page2.getHeight() - (609 * p2ScaleY);
+            const p2X = 426 * p2ScaleX;
+            const p2Y = page2.getHeight() - (530 * p2ScaleY);
             const p2W = 100 * p2ScaleX;
             const p2H = 25 * p2ScaleY;
             page2.drawImage(sigImage, {
@@ -775,7 +775,7 @@ async function handleFormSubmit(e) {
   }
 
   const url = isEditMode ? `/api/plans/${editingPlanId}` : '/api/plans/submit';
-  const method = isEditMode ? 'PUT' : 'POST';
+  const method = 'POST'; // Always use POST for multipart/form-data so PHP populates $_POST and $_FILES
 
   updateQueueUI({ status: 'uploading_drive', progress: 55, message: 'กำลังนำส่งไฟล์ขึ้น Google Drive และจัดระเบียบโฟลเดอร์...' });
 
@@ -1807,6 +1807,11 @@ async function loadAdminPlans() {
                 <i class="fa-solid fa-file-pdf"></i>
               </a>
               ${actionButtonHtml}
+              ${currentUser && currentUser.role === 'admin' ? `
+                <button type="button" class="btn-action-icon delete-btn" onclick="confirmDeletePlan('${p.id}', '${escapeHtml(p.teacher_name)}', '${escapeHtml(p.subject_code)}')" style="color: #ef4444; border-color: #fca5a5; background: #fff5f5;" title="ลบแผนการสอน (ทั้งในฐานข้อมูลและ Drive)">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              ` : ''}
             </div>
           </td>
         </tr>
@@ -1819,6 +1824,59 @@ async function loadAdminPlans() {
     tbody.innerHTML = `<tr><td colspan="7" style="color: #dc2626; text-align: center;">เกิดข้อผิดพลาด: ${err.message}</td></tr>`;
   }
 }
+
+// Global Plan Delete Handler (Admin Only)
+window.confirmDeletePlan = async function(planId, teacherName, subjectCode) {
+  const result = await Swal.fire({
+    title: 'ยืนยันการลบแผนการสอน?',
+    html: `คุณต้องการลบแผนการสอนวิชา <strong>${escapeHtml(subjectCode)}</strong> ของ <strong>${escapeHtml(teacherName)}</strong> ใช่หรือไม่?<br><br><span style="font-size: 0.88rem; color: #dc2626; background: #fef2f2; padding: 6px 12px; border-radius: 6px; display: inline-block; border: 1px solid #fecaca;"><i class="fa-solid fa-triangle-exclamation"></i> ระบบจะลบข้อมูลออกจากฐานข้อมูล และลบไฟล์ PDF บน Google Drive ออกให้อัตโนมัติ</span>`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#dc2626',
+    cancelButtonColor: '#64748b',
+    confirmButtonText: '<i class="fa-solid fa-trash-can"></i> ยืนยันลบข้อมูล',
+    cancelButtonText: 'ยกเลิก',
+    focusCancel: true
+  });
+
+  if (!result.isConfirmed) return;
+
+  Swal.fire({
+    title: 'กำลังลบแผนการสอน...',
+    text: 'กำลังลบข้อมูลในฐานข้อมูลและนำไฟล์ออกจาก Google Drive...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  try {
+    const res = await fetch(`/api/plans/${planId}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (json.success) {
+      Swal.fire({
+        icon: 'success',
+        title: 'ลบสำเร็จ!',
+        text: json.message,
+        confirmButtonColor: '#10b981'
+      });
+      loadAdminPlans();
+      if (typeof searchTeacherHistory === 'function' && currentUser && currentUser.email) {
+        searchTeacherHistory(false);
+      }
+    } else {
+      Swal.fire({
+        icon: 'error',
+        title: 'ไม่สามารถลบได้',
+        text: json.message || 'เกิดข้อผิดพลาดในการลบ'
+      });
+    }
+  } catch (err) {
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      text: err.message
+    });
+  }
+};
 
 // -------------------------------------------------------------
 // 9. Reviewer Workstation (PDF Preview + E-Signature + Actions)
@@ -2109,11 +2167,11 @@ async function submitReviewAction(action) {
           const toPdfY = (imgY) => targetPage.getHeight() - (imgY * scaleY);
 
           const stageSlots = {
-            dept_head: { x: isCol2 ? 410 : 175, y: 479 },
-            curriculum_head: { x: isCol2 ? 410 : 175, y: 514 },
-            academic_head: { x: isCol2 ? 410 : 175, y: 514 },
-            academic_director: { x: isCol2 ? 410 : 175, y: 623 },
-            director: { x: isCol2 ? 410 : 175, y: 677 }
+            dept_head: { x: isCol2 ? 426 : 185, y: 448 },
+            curriculum_head: { x: isCol2 ? 426 : 185, y: 483 },
+            academic_head: { x: isCol2 ? 426 : 185, y: 483 },
+            academic_director: { x: isCol2 ? 426 : 185, y: 599 },
+            director: { x: isCol2 ? 426 : 185, y: 642 }
           };
 
           const slot = stageSlots[currentStage] || stageSlots['dept_head'];
@@ -2126,8 +2184,8 @@ async function submitReviewAction(action) {
           const sigImg = await pdfDoc.embedPng(bytes);
           const sigSlotX = toPdfX(slot.x);
           const sigSlotY = toPdfY(slot.y);
-          const renderW = 75 * scaleX;
-          const renderH = 25 * scaleY;
+          const renderW = 80 * scaleX;
+          const renderH = 22 * scaleY;
 
           targetPage.drawImage(sigImg, {
             x: sigSlotX - (renderW / 2),
@@ -2136,8 +2194,8 @@ async function submitReviewAction(action) {
             height: renderH
           });
 
-          // Stamp reviewer signature onto Page 2 (แบบ นท.2)
-          if (pages.length >= 2) {
+          // Stamp reviewer signature onto Page 2 (แบบ นท.2) - เฉพาะครั้งที่ 1 เท่านั้น (ครั้งที่ 2 ไม่เซ็นหน้า 2 ซ้ำ)
+          if (!isCol2 && pages.length >= 2) {
             try {
               const page2 = pages[1];
               const p2ScaleX = page2.getWidth() / 595.32;
@@ -2146,12 +2204,12 @@ async function submitReviewAction(action) {
               const p2ToPdfY = (topY) => page2.getHeight() - (topY * p2ScaleY);
 
               const page2Slots = {
-                teacher: { x: p2ToPdfX(430), y: p2ToPdfY(609), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
-                dept_head: { x: p2ToPdfX(170), y: p2ToPdfY(608), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
-                curriculum_head: { x: p2ToPdfX(165), y: p2ToPdfY(678), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
-                academic_head: { x: p2ToPdfX(165), y: p2ToPdfY(678), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
-                academic_director: { x: p2ToPdfX(430), y: p2ToPdfY(676), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
-                director: { x: p2ToPdfX(440), y: p2ToPdfY(757), w: 100 * p2ScaleX, h: 25 * p2ScaleY }
+                teacher: { x: p2ToPdfX(426), y: p2ToPdfY(530), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
+                dept_head: { x: p2ToPdfX(187), y: p2ToPdfY(530), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
+                curriculum_head: { x: p2ToPdfX(187), y: p2ToPdfY(586), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
+                academic_head: { x: p2ToPdfX(187), y: p2ToPdfY(586), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
+                academic_director: { x: p2ToPdfX(440), y: p2ToPdfY(586), w: 100 * p2ScaleX, h: 25 * p2ScaleY },
+                director: { x: p2ToPdfX(440), y: p2ToPdfY(642), w: 100 * p2ScaleX, h: 25 * p2ScaleY }
               };
 
               const p2Slot = page2Slots[currentStage] || page2Slots['dept_head'];
@@ -2177,8 +2235,8 @@ async function submitReviewAction(action) {
               for (let i = 0; i < fbBin.length; i++) fbBytes[i] = fbBin.charCodeAt(i);
 
               const fbImg = await pdfDoc.embedPng(fbBytes);
-              const fbLeftImgX = isCol2 ? 399 : 110;
-              const fbTopImgY = 712; // Top of the 48px box so line 1 sits at 725 and line 2 sits at 747
+              const fbLeftImgX = isCol2 ? 320 : 78;
+              const fbTopImgY = 546; // Top of the 48px box so line 1 sits at 559 and line 2 sits at 578
 
               const fbPdfX = toPdfX(fbLeftImgX);
               const fbPdfY = toPdfY(fbTopImgY + 48); // PDF-lib y is bottom-left of image
@@ -2444,8 +2502,8 @@ async function submitRound2Quick() {
       const pages = pdfDoc.getPages();
       if (pages.length > 0) {
         const targetPage = pages[0];
-        const scaleX = targetPage.getWidth() / 723;
-        const scaleY = targetPage.getHeight() / 1024;
+        const scaleX = targetPage.getWidth() / 595.32;
+        const scaleY = targetPage.getHeight() / 841.92;
         const toPdfX = (imgX) => imgX * scaleX;
         const toPdfY = (imgY) => targetPage.getHeight() - (imgY * scaleY);
 
@@ -2456,10 +2514,10 @@ async function submitRound2Quick() {
         for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
 
         const sigImage = await pdfDoc.embedPng(bytes);
-        const sigSlotX = toPdfX(502);
-        const sigSlotY = toPdfY(550);
-        const renderW = 75 * scaleX;
-        const renderH = 25 * scaleY;
+        const sigSlotX = toPdfX(411);
+        const sigSlotY = toPdfY(425);
+        const renderW = 80 * scaleX;
+        const renderH = 22 * scaleY;
 
         targetPage.drawImage(sigImage, {
           x: sigSlotX - (renderW / 2),
@@ -2468,27 +2526,7 @@ async function submitRound2Quick() {
           height: renderH
         });
 
-        // Stamp Teacher Signature on Page 2 (แบบ นท.2)
-        if (pages.length >= 2) {
-          try {
-            const page2 = pages[1];
-            const p2ScaleX = page2.getWidth() / 595.32;
-            const p2ScaleY = page2.getHeight() / 841.92;
-            const p2X = 430 * p2ScaleX;
-            const p2Y = page2.getHeight() - (609 * p2ScaleY);
-            const p2W = 100 * p2ScaleX;
-            const p2H = 25 * p2ScaleY;
-            page2.drawImage(sigImage, {
-              x: p2X - (p2W / 2),
-              y: p2Y - (p2H / 2) + 2,
-              width: p2W,
-              height: p2H
-            });
-          } catch (p2Err) {
-            console.warn('Client R2 teacher stamp on Page 2 notice:', p2Err);
-          }
-        }
-
+        // สำหรับการส่งครั้งที่ 2: เซ็นเฉพาะหน้า 1 ในช่องครั้งที่ 2 (คอลัมน์ที่ 2) เท่านั้น ไม่เซ็นหน้า 2 ซ้ำ
         const stampedPdfBytes = await pdfDoc.save();
         fileToUpload = new File([stampedPdfBytes], file.name, { type: 'application/pdf' });
       }

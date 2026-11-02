@@ -15,20 +15,59 @@ $postData = [
 
 echo "Connecting to Web App URL: <b>{$webAppUrl}</b><br>";
 
+$jsonPayload = json_encode($postData, JSON_UNESCAPED_UNICODE);
+
 $ch = curl_init($webAppUrl);
-curl_setopt_array($ch, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_FOLLOWLOCATION => true, // Google Apps Script redirects with 302
-    CURLOPT_POST => true,
-    CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-    CURLOPT_POSTFIELDS => json_encode($postData),
-    CURLOPT_TIMEOUT => 40,
-    CURLOPT_SSL_VERIFYPEER => true
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_HEADER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Content-Type: application/json; charset=utf-8',
+    'Content-Length: ' . strlen($jsonPayload),
+    'Expect:'
 ]);
-$res = curl_exec($ch);
-$http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
+curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+
+$rawRes = curl_exec($ch);
+$http = intval(curl_getinfo($ch, CURLINFO_HTTP_CODE));
+$headerSize = intval(curl_getinfo($ch, CURLINFO_HEADER_SIZE));
+$redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
 $curlErr = curl_error($ch);
 curl_close($ch);
+
+$resHeaders = $rawRes !== false ? substr($rawRes, 0, $headerSize) : '';
+$res = $rawRes !== false ? substr($rawRes, $headerSize) : '';
+
+$hops = 0;
+while (in_array($http, [301, 302, 303, 307, 308]) && $hops < 5) {
+    $hops++;
+    if (empty($redirectUrl) && preg_match('/^Location:\s*(.+)$/mi', $resHeaders, $m)) {
+        $redirectUrl = trim($m[1]);
+    }
+    if (empty($redirectUrl)) break;
+
+    $ch2 = curl_init($redirectUrl);
+    curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch2, CURLOPT_HEADER, true);
+    curl_setopt($ch2, CURLOPT_HTTPGET, true);
+    curl_setopt($ch2, CURLOPT_TIMEOUT, 60);
+    curl_setopt($ch2, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch2, CURLOPT_SSL_VERIFYHOST, 0);
+
+    $rawRes2 = curl_exec($ch2);
+    $http = intval(curl_getinfo($ch2, CURLINFO_HTTP_CODE));
+    $headerSize2 = intval(curl_getinfo($ch2, CURLINFO_HEADER_SIZE));
+    $redirectUrl = curl_getinfo($ch2, CURLINFO_REDIRECT_URL);
+    $curlErr = curl_error($ch2);
+    curl_close($ch2);
+
+    if ($rawRes2 === false) break;
+    $resHeaders = substr($rawRes2, 0, $headerSize2);
+    $res = substr($rawRes2, $headerSize2);
+}
 
 echo "HTTP Status: <b>{$http}</b><br>";
 if ($curlErr) echo "Curl Error: {$curlErr}<br>";

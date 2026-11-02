@@ -38,52 +38,52 @@ export class PdfService {
     const isCol2 = column === 2 || column === '2';
 
     return {
-      // Slot 1: Teacher (ผู้สอน) -> Dotted line at topY = 449
+      // Slot 1: Teacher (ผู้สอน) -> Dotted line at topY = 425
       teacher: {
-        centerX: toPdfX(isCol2 ? 410 : 170),
-        centerY: toPdfY(449),
+        centerX: toPdfX(isCol2 ? 411 : 170),
+        centerY: toPdfY(425),
         width: 80 * scaleX,
         height: 22 * scaleY,
         dateX: toPdfX(isCol2 ? 415 : 175),
-        dateY: toPdfY(424),
+        dateY: toPdfY(406),
       },
-      // Slot 2: Head of Department (หัวหน้ากลุ่มสาระฯ) -> Dotted line at topY = 479
+      // Slot 2: Head of Department (หัวหน้ากลุ่มสาระฯ) -> Dotted line at topY = 448
       dept_head: {
-        centerX: toPdfX(isCol2 ? 410 : 175),
-        centerY: toPdfY(479),
+        centerX: toPdfX(isCol2 ? 426 : 185),
+        centerY: toPdfY(448),
         width: 80 * scaleX,
         height: 22 * scaleY,
       },
       // Slot 3: Curriculum / Academic Affairs Head (งานพัฒนาคุณภาพการจัดการเรียนการสอน)
-      // Dotted line at topY = 514
+      // Dotted line at topY = 483
       curriculum_head: {
-        centerX: toPdfX(isCol2 ? 410 : 175),
-        centerY: toPdfY(514),
+        centerX: toPdfX(isCol2 ? 426 : 185),
+        centerY: toPdfY(483),
         width: 80 * scaleX,
         height: 22 * scaleY,
       },
       academic_head: {
-        centerX: toPdfX(isCol2 ? 410 : 175),
-        centerY: toPdfY(514),
+        centerX: toPdfX(isCol2 ? 426 : 185),
+        centerY: toPdfY(483),
         width: 80 * scaleX,
         height: 22 * scaleY,
       },
       // Slot 4: Vice Director for Academic Affairs (รองผู้อำนวยการฝ่ายวิชาการ)
-      // Comment lines at topY = 586 and 604, Dotted line at topY = 623
+      // Comment lines at topY = 560 and 578, Dotted line at topY = 599
       academic_director: {
-        centerX: toPdfX(isCol2 ? 410 : 175),
-        centerY: toPdfY(623),
+        centerX: toPdfX(isCol2 ? 426 : 185),
+        centerY: toPdfY(599),
         width: 80 * scaleX,
         height: 22 * scaleY,
-        commentX: toPdfX(isCol2 ? 410 : 175),
-        commentY: toPdfY(586),
-        commentY2: toPdfY(604),
+        commentX: toPdfX(isCol2 ? 417 : 175),
+        commentY: toPdfY(560),
+        commentY2: toPdfY(578),
       },
       // Slot 5: School Director (ผู้อำนวยการโรงเรียนสระหลวงพิทยาคม)
-      // Dotted line at topY = 677
+      // Dotted line at topY = 642
       director: {
-        centerX: toPdfX(isCol2 ? 410 : 175),
-        centerY: toPdfY(677),
+        centerX: toPdfX(isCol2 ? 426 : 185),
+        centerY: toPdfY(642),
         width: 80 * scaleX,
         height: 22 * scaleY,
       }
@@ -102,44 +102,44 @@ export class PdfService {
     const toPdfY = (topY) => pageHeight - (topY * scaleY);
 
     return {
-      // Slot 1: ครูผู้สอน -> แถวที่ 1 ด้านขวา ระหว่าง 'ลงชื่อ' กับ 'ผู้สอน' เหนือ (นายเอกเทศ เพ็ชรวิจิตร) ครู
+      // Slot 1: ครูผู้สอน -> แถวที่ 1 ด้านขวา ระหว่าง 'ลงชื่อ' กับ 'ผู้สอน'
       teacher: {
-        centerX: toPdfX(430),
-        centerY: toPdfY(609),
+        centerX: toPdfX(426),
+        centerY: toPdfY(530),
         width: 100 * scaleX,
         height: 25 * scaleY,
       },
       // Slot 2: หัวหน้ากลุ่มสาระการเรียนรู้ฯ -> แถวที่ 1 ด้านซ้าย เหนือ (นางวัชรี สุขสวัสดิ์)
       dept_head: {
-        centerX: toPdfX(170),
-        centerY: toPdfY(608),
+        centerX: toPdfX(187),
+        centerY: toPdfY(530),
         width: 100 * scaleX,
         height: 25 * scaleY,
       },
-      // Slot 3: หัวหน้างานหลักสูตร / งานพัฒนาคุณภาพการจัดการเรียนการสอนการสอน -> แถวที่ 2 ด้านซ้าย เหนือ (...................)
+      // Slot 3: หัวหน้างานหลักสูตร / งานพัฒนาคุณภาพการจัดการเรียนการสอน -> แถวที่ 2 ด้านซ้าย
       curriculum_head: {
-        centerX: toPdfX(165),
-        centerY: toPdfY(678),
+        centerX: toPdfX(187),
+        centerY: toPdfY(586),
         width: 100 * scaleX,
         height: 25 * scaleY,
       },
       academic_head: {
-        centerX: toPdfX(165),
-        centerY: toPdfY(678),
+        centerX: toPdfX(187),
+        centerY: toPdfY(586),
         width: 100 * scaleX,
         height: 25 * scaleY,
       },
       // Slot 4: รองผู้อำนวยการโรงเรียน กลุ่มบริหารวิชาการ -> แถวที่ 2 ด้านขวา เหนือ (นางสาวรัชนี ชูเมือง)
       academic_director: {
-        centerX: toPdfX(430),
-        centerY: toPdfY(676),
+        centerX: toPdfX(440),
+        centerY: toPdfY(586),
         width: 100 * scaleX,
         height: 25 * scaleY,
       },
       // Slot 5: ผู้อำนวยการโรงเรียนสระหลวงพิทยาคม -> แถวล่างสุด ด้านขวา เหนือ (นางนิกูล ทองหน้าศาล)
       director: {
         centerX: toPdfX(440),
-        centerY: toPdfY(757),
+        centerY: toPdfY(642),
         width: 100 * scaleX,
         height: 25 * scaleY,
       }
@@ -369,9 +369,9 @@ export class PdfService {
       }
     }
 
-    // 1.1 Stamp Teacher Signature on Page 2 (ตารางจุดเน้นการจัดกิจกรรมฯ นท.2)
+    // 1.1 Stamp Teacher Signature on Page 2 (ตารางจุดเน้นการจัดกิจกรรมฯ นท.2) - เฉพาะครั้งที่ 1 เท่านั้น
     const allDocPages = pdfDoc.getPages();
-    if (allDocPages.length >= 2) {
+    if (!isCol2 && allDocPages.length >= 2) {
       const page2 = allDocPages[1];
       const { width: p2W, height: p2H } = page2.getSize();
       const p2Slots = this.getPage2SlotCoordinates(p2W, p2H);
@@ -576,9 +576,9 @@ export class PdfService {
       }
     }
 
-    // 1.1 Embed and Draw Reviewer's Signature on Page 2 (แบบ นท.2)
+    // 1.1 Embed and Draw Reviewer's Signature on Page 2 (แบบ นท.2) - เฉพาะครั้งที่ 1 เท่านั้น
     const allDocPages = pdfDoc.getPages();
-    if (allDocPages.length >= 2) {
+    if (!isCol2 && allDocPages.length >= 2) {
       const page2 = allDocPages[1];
       const { width: p2W, height: p2H } = page2.getSize();
       const p2Slots = this.getPage2SlotCoordinates(p2W, p2H);
@@ -758,11 +758,11 @@ export class PdfService {
         }
       }
 
-      // 2. Reviewer signatures from approval_timeline
+      // 2. Reviewer signatures from approval_timeline (เฉพาะครั้งที่ 1 สำหรับหน้า 2)
       const timelineRows = await db.query(
         `SELECT stage_key, reviewer_name, reviewer_role, reviewer_signature 
          FROM approval_timeline 
-         WHERE lesson_plan_id = ? AND status = 'completed' AND reviewer_signature IS NOT NULL
+         WHERE lesson_plan_id = ? AND (round_number = 1 OR round_number IS NULL) AND status = 'completed' AND reviewer_signature IS NOT NULL
          ORDER BY step_order ASC`,
         [planId]
       );

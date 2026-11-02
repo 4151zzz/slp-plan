@@ -618,27 +618,22 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
             $f2 = __DIR__ . '/../../' . ltrim($oldStamped, '/');
             if (file_exists($f2) && is_file($f2)) @unlink($f2);
         }
-        if (!empty($oldDriveId)) {
-            deleteGoogleDriveFile($oldDriveId);
-        }
-
-        // Upload new file to Google Drive via Google Apps Script Web App
+        // Upload new file to Google Drive FIRST before deleting old Drive file
         try {
-            $driveRes = uploadViaGoogleScript($destPath, $originalName, $tDept, $tName, $oldDriveId);
-            if ($driveRes) {
-                $driveFileId = $driveRes['fileId'];
-                $driveViewLink = $driveRes['webViewLink'];
-                $driveDownloadLink = $driveRes['downloadLink'];
-            } else {
+            $driveRes = uploadViaGoogleScript($destPath, $originalName, $tDept, $tName, null);
+            if (!$driveRes) {
                 $token = getGoogleAccessToken();
                 if ($token) {
                     $rootFolderId = '1hZ3MNDvHOK2mfUxQPIauuN9smqvDXlXt';
                     $driveRes = uploadFileToGoogleDrive($token, $destPath, $originalName, $rootFolderId, $tDept, $tName);
-                    if ($driveRes) {
-                        $driveFileId = $driveRes['fileId'];
-                        $driveViewLink = $driveRes['webViewLink'];
-                        $driveDownloadLink = $driveRes['downloadLink'];
-                    }
+                }
+            }
+            if ($driveRes && !empty($driveRes['fileId'])) {
+                $driveFileId = $driveRes['fileId'];
+                $driveViewLink = $driveRes['webViewLink'];
+                $driveDownloadLink = $driveRes['downloadLink'];
+                if (!empty($oldDriveId) && $oldDriveId !== $driveFileId) {
+                    deleteGoogleDriveFile($oldDriveId);
                 }
             }
         } catch (Exception $e) {}
@@ -682,6 +677,54 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
     ]);
 }
 
+// 9.2 DELETE /api/plans/:id or /api/admin/plans/:id (Delete Plan from DB, local disk, and Google Drive)
+if ($method === 'DELETE' && preg_match('#^/(?:admin/)?plans/([^/]+)$#', $path, $matches)) {
+    $planId = $matches[1];
+    $stmt = $pdo->prepare("SELECT * FROM lesson_plans WHERE id = ?");
+    $stmt->execute([$planId]);
+    $plan = $stmt->fetch();
+    if (!$plan) {
+        json_resp(['success' => false, 'message' => 'ไม่พบข้อมูลแผนการสอนที่ต้องการลบ'], 404);
+    }
+
+    $teacherName = $plan['teacher_name'] ?? 'ครูผู้สอน';
+    $subjectCode = $plan['subject_code'] ?? 'แผนการสอน';
+
+    // 1. Delete file on Google Drive if exists
+    $driveDeleted = false;
+    if (!empty($plan['google_drive_file_id'])) {
+        try {
+            $driveDeleted = deleteGoogleDriveFile($plan['google_drive_file_id']);
+        } catch (Exception $e) {}
+    }
+
+    // 2. Delete local uploaded & stamped files
+    $localFiles = array_filter([$plan['local_file_path'] ?? null, $plan['stamped_file_path'] ?? null]);
+    foreach ($localFiles as $rel) {
+        if (!empty($rel)) {
+            $full = __DIR__ . '/../../' . ltrim($rel, '/');
+            if (file_exists($full) && is_file($full)) {
+                @unlink($full);
+            }
+        }
+    }
+
+    // 3. Delete approval timeline records
+    $delTimeline = $pdo->prepare("DELETE FROM approval_timeline WHERE lesson_plan_id = ?");
+    $delTimeline->execute([$planId]);
+
+    // 4. Delete lesson plan record
+    $delPlan = $pdo->prepare("DELETE FROM lesson_plans WHERE id = ?");
+    $delPlan->execute([$planId]);
+
+    json_resp([
+        'success' => true,
+        'message' => "ลบแผนการสอนวิชา {$subjectCode} ของ \"{$teacherName}\" ทั้งในฐานข้อมูลและบน Google Drive เรียบร้อยแล้ว",
+        'planId' => $planId,
+        'driveDeleted' => $driveDeleted
+    ]);
+}
+
 // 10. GET /api/plans/teacher/:email
 if ($method === 'GET' && preg_match('#^/plans/teacher/([^/]+)$#', $path, $matches)) {
     $email = strtolower(urldecode($matches[1]));
@@ -693,7 +736,14 @@ if ($method === 'GET' && preg_match('#^/plans/teacher/([^/]+)$#', $path, $matche
         ORDER BY lp.created_at DESC
     ");
     $stmt->execute([$email]);
-    json_resp(['success' => true, 'data' => $stmt->fetchAll()]);
+    $rows = $stmt->fetchAll();
+    foreach ($rows as &$r) {
+        if (empty($r['google_drive_view_link'])) {
+            syncPlanToGoogleDriveIfMissing($pdo, $r);
+        }
+    }
+    unset($r);
+    json_resp(['success' => true, 'data' => $rows]);
 }
 
 // 11. GET /api/plans/:id
@@ -708,6 +758,9 @@ if ($method === 'GET' && preg_match('#^/plans/([^/]+)$#', $path, $matches) && !i
     $stmt->execute([$planId]);
     $plan = $stmt->fetch();
     if (!$plan) json_resp(['success' => false, 'message' => 'ไม่พบข้อมูลแผนการสอน'], 404);
+    if (empty($plan['google_drive_view_link'])) {
+        syncPlanToGoogleDriveIfMissing($pdo, $plan);
+    }
     json_resp(['success' => true, 'data' => $plan]);
 }
 
@@ -724,6 +777,9 @@ if ($method === 'GET' && preg_match('#^/plans/([^/]+)/timeline$#', $path, $match
     $plan = $stmt->fetch();
     if (!$plan) {
         json_resp(['success' => false, 'message' => 'ไม่พบข้อมูลแผนการสอน'], 404);
+    }
+    if (empty($plan['google_drive_view_link'])) {
+        syncPlanToGoogleDriveIfMissing($pdo, $plan);
     }
 
     $t1Stmt = $pdo->prepare("
@@ -796,20 +852,34 @@ if ($method === 'POST' && preg_match('#^/plans/([^/]+)/submit-round-2$#', $path,
             $f1 = __DIR__ . '/../../' . ltrim($p['local_file_path'], '/');
             if (file_exists($f1) && is_file($f1)) @unlink($f1);
         }
-        if (!empty($p['google_drive_file_id'])) {
-            deleteGoogleDriveFile($p['google_drive_file_id']);
-        }
+        $oldDriveIdR2 = $p['google_drive_file_id'] ?? null;
 
         try {
-            $driveRes = uploadViaGoogleScript($destPath, $p['file_original_name'] ?: 'lesson_plan.pdf', $p['teacher_department'] ?: 'ทั่วไป', $p['teacher_name'] ?: 'ครูผู้สอน', $p['google_drive_file_id'] ?? null);
-            if ($driveRes) {
+            $r2OrigName = $p['file_original_name'] ?: 'lesson_plan.pdf';
+            $r2Dept = $p['teacher_department'] ?: 'ทั่วไป';
+            $r2Teacher = $p['teacher_name'] ?: 'ครูผู้สอน';
+            $driveRes = uploadViaGoogleScript($destPath, $r2OrigName, $r2Dept, $r2Teacher, null);
+            if (!$driveRes) {
+                $token = getGoogleAccessToken();
+                if ($token) {
+                    $rootFolderId = '1hZ3MNDvHOK2mfUxQPIauuN9smqvDXlXt';
+                    $driveRes = uploadFileToGoogleDrive($token, $destPath, $r2OrigName, $rootFolderId, $r2Dept, $r2Teacher);
+                }
+            }
+            if ($driveRes && !empty($driveRes['fileId'])) {
                 $upd = $pdo->prepare("UPDATE lesson_plans SET local_file_path = ?, stamped_file_path = ?, google_drive_file_id = ?, google_drive_view_link = ?, google_drive_download_link = ? WHERE id = ?");
                 $upd->execute([$newLocalPath, $newLocalPath, $driveRes['fileId'], $driveRes['webViewLink'], $driveRes['downloadLink'], $planId]);
+                if (!empty($oldDriveIdR2) && $oldDriveIdR2 !== $driveRes['fileId']) {
+                    deleteGoogleDriveFile($oldDriveIdR2);
+                }
             } else {
                 $upd = $pdo->prepare("UPDATE lesson_plans SET local_file_path = ?, stamped_file_path = ? WHERE id = ?");
                 $upd->execute([$newLocalPath, $newLocalPath, $planId]);
             }
-        } catch (Exception $e) {}
+        } catch (Exception $e) {
+            $upd = $pdo->prepare("UPDATE lesson_plans SET local_file_path = ?, stamped_file_path = ? WHERE id = ?");
+            $upd->execute([$newLocalPath, $newLocalPath, $planId]);
+        }
     }
 
     init_approval_timeline($pdo, $planId, $p['teacher_name'] ?? 'ครูผู้สอน', 'dept_head', 'submitted', 2);
@@ -884,8 +954,14 @@ if ($method === 'GET' && $path === '/admin/plans') {
     $countTotal = count($allPlans);
 
     $filteredPlans = [];
+    $autoSyncedCount = 0;
 
     foreach ($allPlans as &$p) {
+        if (empty($p['google_drive_view_link']) && $autoSyncedCount < 2) {
+            if (syncPlanToGoogleDriveIfMissing($pdo, $p)) {
+                $autoSyncedCount++;
+            }
+        }
         $pid = $p['id'];
         $hasRound2 = (intval($p['current_round']) === 2 || (!empty($p['round_2_status']) && $p['round_2_status'] !== 'not_started'));
         $r1Approved = ($p['submission_status'] === 'approved');
@@ -962,6 +1038,7 @@ if ($method === 'GET' && $path === '/admin/plans') {
 
 // 15. POST /api/admin/plans/:id/step-review (Tier progression)
 if ($method === 'POST' && preg_match('#^/admin/plans/([^/]+)/step-review$#', $path, $matches)) {
+    @set_time_limit(180);
     $planId = $matches[1];
     $b = get_json_body();
     $action = $_POST['action'] ?? $b['action'] ?? 'approve'; // approve / request_revision
@@ -1031,14 +1108,17 @@ if ($method === 'POST' && preg_match('#^/admin/plans/([^/]+)/step-review$#', $pa
             if (file_exists($f2) && is_file($f2)) @unlink($f2);
         }
 
-        // 2. Delete previous file on Google Drive so it doesn't accumulate
-        if (!empty($oldDriveId)) {
-            deleteGoogleDriveFile($oldDriveId);
-        }
-
+        // 2. Upload new stamped PDF to Google Drive FIRST, then delete old file only after new upload succeeds
         try {
-            $driveRes = uploadViaGoogleScript($destPath, $origName, $tDept, $tName, $oldDriveId);
-            if ($driveRes) {
+            $driveRes = uploadViaGoogleScript($destPath, $origName, $tDept, $tName, null);
+            if (!$driveRes) {
+                $token = getGoogleAccessToken();
+                if ($token) {
+                    $rootFolderId = '1hZ3MNDvHOK2mfUxQPIauuN9smqvDXlXt';
+                    $driveRes = uploadFileToGoogleDrive($token, $destPath, $origName, $rootFolderId, $tDept, $tName);
+                }
+            }
+            if ($driveRes && !empty($driveRes['fileId'])) {
                 $driveFileId = $driveRes['fileId'];
                 $driveViewLink = $driveRes['webViewLink'];
                 $driveDownloadLink = $driveRes['downloadLink'];
@@ -1049,6 +1129,10 @@ if ($method === 'POST' && preg_match('#^/admin/plans/([^/]+)/step-review$#', $pa
                     WHERE id = ?
                 ");
                 $updDrive->execute([$newLocalPath, $newLocalPath, $driveFileId, $driveViewLink, $driveDownloadLink, $planId]);
+
+                if (!empty($oldDriveId) && $oldDriveId !== $driveFileId) {
+                    deleteGoogleDriveFile($oldDriveId);
+                }
             } else {
                 $updLocal = $pdo->prepare("UPDATE lesson_plans SET stamped_file_path = ?, local_file_path = ? WHERE id = ?");
                 $updLocal->execute([$newLocalPath, $newLocalPath, $planId]);
@@ -1056,6 +1140,14 @@ if ($method === 'POST' && preg_match('#^/admin/plans/([^/]+)/step-review$#', $pa
         } catch (Exception $e) {
             $updLocal = $pdo->prepare("UPDATE lesson_plans SET stamped_file_path = ?, local_file_path = ? WHERE id = ?");
             $updLocal->execute([$newLocalPath, $newLocalPath, $planId]);
+        }
+    } else {
+        // Ensure existing local PDF is synced to Google Drive if link is still missing
+        $pDetailsStmt = $pdo->prepare("SELECT * FROM lesson_plans WHERE id = ?");
+        $pDetailsStmt->execute([$planId]);
+        $pDetails = $pDetailsStmt->fetch();
+        if ($pDetails && empty($pDetails['google_drive_view_link'])) {
+            syncPlanToGoogleDriveIfMissing($pdo, $pDetails);
         }
     }
 
@@ -1538,21 +1630,26 @@ function deleteGoogleDriveFile($fileId) {
             $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
             foreach ($lines as $line) {
                 if (strpos(trim($line), 'GOOGLE_SCRIPT_WEBAPP_URL=') === 0) {
-                    $webAppUrl = trim(substr($line, strlen('GOOGLE_SCRIPT_WEBAPP_URL=')));
+                    $val = trim(substr(trim($line), strlen('GOOGLE_SCRIPT_WEBAPP_URL=')));
+                    $val = trim($val, " \t\n\r\0\x0B\"'");
+                    if (!empty($val)) $webAppUrl = $val;
                 }
             }
         }
         if ($webAppUrl) {
+            $delPayload = json_encode(['action' => 'delete', 'fileId' => $fileId]);
             $ch = curl_init($webAppUrl);
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_POST => true,
-                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-                CURLOPT_POSTFIELDS => json_encode(['action' => 'delete', 'fileId' => $fileId]),
-                CURLOPT_TIMEOUT => 15,
-                CURLOPT_SSL_VERIFYPEER => true
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json; charset=utf-8',
+                'Content-Length: ' . strlen($delPayload),
+                'Expect:'
             ]);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $delPayload);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
             curl_exec($ch);
             curl_close($ch);
         }
@@ -1562,6 +1659,9 @@ function deleteGoogleDriveFile($fileId) {
 }
 
 function uploadViaGoogleScript($filePath, $fileName, $department, $teacherName, $deleteFileId = null) {
+    @set_time_limit(180);
+    @ini_set('memory_limit', '256M');
+
     $envPath = __DIR__ . '/../../.env';
     $webAppUrl = 'https://script.google.com/macros/s/AKfycbwj0MbEaIonkYhTbiI0HbVV1SgzDU4GqtrVwyBI0Eld5MgcoORD1040myQX13djqwLH/exec';
 
@@ -1569,16 +1669,20 @@ function uploadViaGoogleScript($filePath, $fileName, $department, $teacherName, 
         $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         foreach ($lines as $line) {
             if (strpos(trim($line), 'GOOGLE_SCRIPT_WEBAPP_URL=') === 0) {
-                $webAppUrl = trim(substr($line, strlen('GOOGLE_SCRIPT_WEBAPP_URL=')));
+                $val = trim(substr(trim($line), strlen('GOOGLE_SCRIPT_WEBAPP_URL=')));
+                $val = trim($val, " \t\n\r\0\x0B\"'");
+                if (!empty($val)) $webAppUrl = $val;
             }
         }
     }
 
     if (!$webAppUrl || !file_exists($filePath)) return null;
 
-    $fileData = file_get_contents($filePath);
+    $fileData = @file_get_contents($filePath);
+    if ($fileData === false) return null;
+
     $postData = [
-        'fileName' => $fileName,
+        'fileName' => $fileName ?: 'lesson_plan.pdf',
         'fileBase64' => base64_encode($fileData),
         'department' => $department ?: 'กลุ่มสาระทั่วไป',
         'teacherName' => $teacherName ?: 'ครูผู้สอน'
@@ -1587,36 +1691,126 @@ function uploadViaGoogleScript($filePath, $fileName, $department, $teacherName, 
         $postData['deleteFileId'] = $deleteFileId;
     }
 
+    $jsonPayload = json_encode($postData, JSON_UNESCAPED_UNICODE);
+
+    // Step 1: POST payload without CURLOPT_FOLLOWLOCATION inside curl_setopt_array
+    // (Prevents open_basedir on shared hosting from aborting curl_setopt_array)
     $ch = curl_init($webAppUrl);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_POST => true,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
-        CURLOPT_POSTFIELDS => json_encode($postData),
-        CURLOPT_TIMEOUT => 90,
-        CURLOPT_SSL_VERIFYPEER => true
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HEADER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json; charset=utf-8',
+        'Content-Length: ' . strlen($jsonPayload),
+        'Expect:'
     ]);
-    $res = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) LessonPlanSystem/1.0');
+
+    $rawRes = curl_exec($ch);
+    $httpCode = intval(curl_getinfo($ch, CURLINFO_HTTP_CODE));
+    $headerSize = intval(curl_getinfo($ch, CURLINFO_HEADER_SIZE));
+    $redirectUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+    $curlErr = curl_error($ch);
     curl_close($ch);
 
-    if ($res && $httpCode >= 200 && $httpCode < 400) {
-        $data = json_decode($res, true);
+    $resHeaders = $rawRes !== false ? substr($rawRes, 0, $headerSize) : '';
+    $resBody = $rawRes !== false ? substr($rawRes, $headerSize) : '';
+
+    // Step 2: Manually follow 301/302/303/307/308 redirects via GET (up to 5 hops)
+    $hops = 0;
+    while (in_array($httpCode, [301, 302, 303, 307, 308]) && $hops < 5) {
+        $hops++;
+        if (empty($redirectUrl) && preg_match('/^Location:\s*(.+)$/mi', $resHeaders, $m)) {
+            $redirectUrl = trim($m[1]);
+        }
+        if (empty($redirectUrl)) break;
+
+        $ch2 = curl_init($redirectUrl);
+        curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch2, CURLOPT_HEADER, true);
+        curl_setopt($ch2, CURLOPT_HTTPGET, true);
+        curl_setopt($ch2, CURLOPT_TIMEOUT, 90);
+        curl_setopt($ch2, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch2, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch2, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($ch2, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) LessonPlanSystem/1.0');
+
+        $rawRes2 = curl_exec($ch2);
+        $httpCode = intval(curl_getinfo($ch2, CURLINFO_HTTP_CODE));
+        $headerSize2 = intval(curl_getinfo($ch2, CURLINFO_HEADER_SIZE));
+        $redirectUrl = curl_getinfo($ch2, CURLINFO_REDIRECT_URL);
+        $curlErr = curl_error($ch2);
+        curl_close($ch2);
+
+        if ($rawRes2 === false) break;
+        $resHeaders = substr($rawRes2, 0, $headerSize2);
+        $resBody = substr($rawRes2, $headerSize2);
+    }
+
+    if ($resBody && $httpCode >= 200 && $httpCode < 400) {
+        $data = json_decode(trim($resBody), true);
         if (!empty($data['success'])) {
+            $fid = $data['fileId'] ?? ('gdrive_' . time());
             return [
-                'fileId' => $data['fileId'] ?? ('gdrive_' . time()),
-                'webViewLink' => $data['webViewLink'] ?? "https://drive.google.com/file/d/{$data['fileId']}/view",
-                'downloadLink' => $data['downloadLink'] ?? null
+                'fileId' => $fid,
+                'webViewLink' => $data['webViewLink'] ?? "https://drive.google.com/file/d/{$fid}/view",
+                'downloadLink' => $data['downloadLink'] ?? "https://drive.google.com/uc?export=download&id={$fid}"
             ];
         }
     }
+    @file_put_contents(__DIR__ . '/../../data/gdrive_error.log', date('Y-m-d H:i:s') . " WebApp HTTP: {$httpCode} Hops: {$hops} Err: {$curlErr} Res: " . substr((string)$resBody, 0, 500) . "\n", FILE_APPEND);
     return null;
+}
+
+function syncPlanToGoogleDriveIfMissing($pdo, &$plan) {
+    if (!empty($plan['google_drive_view_link']) && strpos($plan['google_drive_file_id'] ?? '', 'mock_') !== 0) {
+        return false;
+    }
+    $relPath = $plan['stamped_file_path'] ?: ($plan['local_file_path'] ?? '');
+    if (empty($relPath)) return false;
+
+    $fullPath = __DIR__ . '/../../' . ltrim($relPath, '/');
+    if (!file_exists($fullPath) || !is_file($fullPath)) return false;
+
+    $origName = $plan['file_original_name'] ?: ('แผนการสอน_' . ($plan['subject_code'] ?? 'PDF') . '.pdf');
+    $dept = $plan['teacher_department'] ?: 'กลุ่มสาระทั่วไป';
+    $teacher = $plan['teacher_name'] ?: 'ครูผู้สอน';
+
+    $driveRes = uploadViaGoogleScript($fullPath, $origName, $dept, $teacher, null);
+    if ($driveRes && !empty($driveRes['fileId'])) {
+        $upd = $pdo->prepare("UPDATE lesson_plans SET google_drive_file_id = ?, google_drive_view_link = ?, google_drive_download_link = ? WHERE id = ?");
+        $upd->execute([$driveRes['fileId'], $driveRes['webViewLink'], $driveRes['downloadLink'], $plan['id']]);
+        $plan['google_drive_file_id'] = $driveRes['fileId'];
+        $plan['google_drive_view_link'] = $driveRes['webViewLink'];
+        $plan['google_drive_download_link'] = $driveRes['downloadLink'];
+        return true;
+    }
+    return false;
 }
 
 function uploadFileToGoogleDrive($token, $filePath, $fileName, $targetFolderId = null, $department = '', $teacherName = '') {
     // Direct Resumable Upload via Google Drive API (Service Account Fallback)
     if (!$token || !file_exists($filePath)) return null;
+
+    // Resolve Department -> Teacher subfolder hierarchy if provided
+    $parentFolderId = $targetFolderId;
+    if ($department) {
+        $deptFld = getOrCreateGoogleDriveFolder($token, $department, $parentFolderId);
+        if ($deptFld && !empty($deptFld['id'])) {
+            $parentFolderId = $deptFld['id'];
+            if ($teacherName) {
+                $teacherFld = getOrCreateGoogleDriveFolder($token, $teacherName, $parentFolderId);
+                if ($teacherFld && !empty($teacherFld['id'])) {
+                    $parentFolderId = $teacherFld['id'];
+                }
+            }
+        }
+    }
 
     $fileSize = filesize($filePath);
     $mimeType = 'application/pdf';
@@ -1625,8 +1819,8 @@ function uploadFileToGoogleDrive($token, $filePath, $fileName, $targetFolderId =
         'name' => $fileName,
         'mimeType' => $mimeType
     ];
-    if ($targetFolderId) {
-        $metadata['parents'] = [$targetFolderId];
+    if ($parentFolderId) {
+        $metadata['parents'] = [$parentFolderId];
     }
 
     // Step 1: Initialize Resumable Upload Session
@@ -1792,17 +1986,54 @@ if ($method === 'POST' && $path === '/admin/drive/sync-folders') {
         ];
     }
 
+    // 3. Also auto-sync any lesson plans that have a local PDF file but are missing google_drive_view_link
+    $missingStmt = $pdo->query("SELECT * FROM lesson_plans WHERE (google_drive_view_link IS NULL OR google_drive_view_link = '')");
+    $missingPlans = $missingStmt->fetchAll();
+    $syncedPlansCount = 0;
+    foreach ($missingPlans as $mp) {
+        if (syncPlanToGoogleDriveIfMissing($pdo, $mp)) {
+            $syncedPlansCount++;
+        }
+    }
+
+    $syncMsg = "ซิงค์โครงสร้างโฟลเดอร์สำเร็จ: สร้าง/ตรวจพบกลุ่มสาระฯ {$departmentsCreated} หมวด และครู {$teachersCreated} ท่าน";
+    if ($syncedPlansCount > 0) {
+        $syncMsg .= " (อัปโหลดไฟล์ PDF ที่ค้างขึ้น Google Drive สำเร็จ {$syncedPlansCount} แผน)";
+    }
+
     json_resp([
         'success' => true,
-        'message' => "ซิงค์โครงสร้างโฟลเดอร์สำเร็จ: สร้าง/ตรวจพบกลุ่มสาระฯ {$departmentsCreated} หมวด และครู {$teachersCreated} ท่าน",
+        'message' => $syncMsg,
         'data' => [
             'totalDepartments' => count($departments),
             'totalTeachers' => count($allTeachers),
             'departmentsCreated' => $departmentsCreated,
             'teachersCreated' => $teachersCreated,
+            'syncedPlansCount' => $syncedPlansCount,
             'tree' => $tree
         ]
     ]);
+}
+
+// 22.9. GET /api/templates/download
+if ($method === 'GET' && $path === '/templates/download') {
+    $candidates = [
+        __DIR__ . '/../templates/เทมเพลต_นท1_นท2.docx',
+        __DIR__ . '/../../data/templates/เทมเพลต_นท1_นท2.docx',
+        __DIR__ . '/../../test/เทมเพลต_นท1_นท2 (1).docx'
+    ];
+    foreach ($candidates as $tplPath) {
+        if (file_exists($tplPath)) {
+            $dlName = 'เทมเพลต_นท1_นท2.docx';
+            header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+            header('Content-Disposition: attachment; filename="template_nt1_nt2.docx"; filename*=UTF-8\'\'' . rawurlencode($dlName));
+            header('Content-Length: ' . filesize($tplPath));
+            readfile($tplPath);
+            exit;
+        }
+    }
+    http_response_code(404);
+    die('ไม่พบไฟล์เทมเพลต');
 }
 
 // 23. GET /api/files/download/:id

@@ -688,6 +688,9 @@
     <!-- Navigation Tabs -->
     <div class="admin-nav-bar">
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button type="button" class="admin-tab-btn" id="tabPlansBtn" onclick="switchAdminTab('plans')">
+          <i class="fa-solid fa-file-signature" style="color: #2563eb;"></i> แผนการสอนทั้งหมด (<span id="adminPlansCountBadge">0</span>)
+        </button>
         <button type="button" class="admin-tab-btn active" id="tabUsersBtn" onclick="switchAdminTab('users')">
           <i class="fa-solid fa-users-gear"></i> จัดการผู้ใช้ & บุคลากร
         </button>
@@ -1064,6 +1067,95 @@
       </div>
     </section>
 
+    <!-- =========================================================
+         SECTION 7: ALL LESSON PLANS & EASY DELETION
+         ========================================================= -->
+    <section id="adminSectionPlans" class="app-card" style="display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <h2 style="font-size: 1.15rem; font-weight: 700; color: #1e3a8a; margin: 0; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-file-signature" style="color: #2563eb; font-size: 1.25rem;"></i> แผนการสอนทั้งหมดในระบบ
+          </h2>
+          <div style="font-size: 0.85rem; color: #64748b; margin-top: 4px;">
+            ตรวจสอบรายชื่อครูผู้สอนที่ส่งแผนทั้งหมด และสามารถลบแผนการสอนออกจากฐานข้อมูลพร้อมลบไฟล์บน Google Drive ได้ทันที
+          </div>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="loadAllAdminPlansTable()"
+          style="border-radius: var(--radius-full); padding: 8px 18px;">
+          <i class="fa-solid fa-arrows-rotate"></i> รีเฟรชข้อมูล
+        </button>
+      </div>
+
+      <!-- Quick KPI Counters -->
+      <div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 1.5rem;">
+        <div class="stat-card blue">
+          <div class="stat-label">ส่งแผนทั้งหมด</div>
+          <div class="stat-value" id="planStatTotal">0</div>
+          <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">ทุกหมวดวิชา</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-label">อนุมัติเรียบร้อย</div>
+          <div class="stat-value" id="planStatApproved">0</div>
+          <div style="font-size: 0.75rem; color: #059669; margin-top: 2px;">ผ่านการตรวจแล้ว</div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-label">อยู่ระหว่างตรวจ</div>
+          <div class="stat-value" id="planStatPending">0</div>
+          <div style="font-size: 0.75rem; color: #d97706; margin-top: 2px;">รอผู้บริหารตรวจ</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-label">ส่งกลับแก้ไข</div>
+          <div class="stat-value" id="planStatRevision">0</div>
+          <div style="font-size: 0.75rem; color: #dc2626; margin-top: 2px;">รอครูแก้ไข</div>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="filter-bar" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 1rem;">
+        <input type="text" id="adminPlanSearchInput" class="form-input" placeholder="🔍 ค้นหาชื่อครู, อีเมล, รหัสวิชา, ชื่อวิชา..."
+          onkeyup="filterAdminPlansTable()" style="flex: 2; min-width: 220px;">
+
+        <select id="adminPlanDeptFilter" class="form-select" onchange="filterAdminPlansTable()" style="flex: 1.2; min-width: 170px;">
+          <option value="">ทุกกลุ่มสาระการเรียนรู้</option>
+        </select>
+
+        <select id="adminPlanTermFilter" class="form-select" onchange="filterAdminPlansTable()" style="flex: 1; min-width: 140px;">
+          <option value="">ทุกภาคเรียน</option>
+        </select>
+
+        <select id="adminPlanStatusFilter" class="form-select" onchange="filterAdminPlansTable()" style="flex: 1; min-width: 140px;">
+          <option value="">ทุกสถานะ</option>
+          <option value="approved">อนุมัติเรียบร้อย</option>
+          <option value="pending">อยู่ระหว่างตรวจ</option>
+          <option value="revision">ส่งกลับแก้ไข</option>
+        </select>
+      </div>
+
+      <!-- Plans Table -->
+      <div class="table-responsive" style="border: 1px solid #e2e8f0; border-radius: 12px; overflow-x: auto;">
+        <table class="data-table" style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; font-size: 0.85rem; color: #475569;">
+              <th style="padding: 12px; text-align: left;">วัน-เวลาส่ง</th>
+              <th style="padding: 12px; text-align: left;">ครูผู้สอน</th>
+              <th style="padding: 12px; text-align: left;">กลุ่มสาระฯ</th>
+              <th style="padding: 12px; text-align: left;">วิชา / ชั้น</th>
+              <th style="padding: 12px; text-align: left;">สถานะ</th>
+              <th style="padding: 12px; text-align: center;">เอกสาร / Drive</th>
+              <th style="padding: 12px; text-align: center; width: 100px;">จัดการ</th>
+            </tr>
+          </thead>
+          <tbody id="adminPlansTableBody">
+            <tr>
+              <td colspan="7" style="text-align: center; color: #94a3b8; padding: 2.5rem;">
+                <i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดรายชื่อแผนการสอน...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- Footer -->
     <footer class="app-footer"
       style="text-align: center; padding: 2rem 1rem; color: #64748b; font-size: 0.85rem; border-top: 1px solid #e2e8f0; margin-top: 3rem;">
@@ -1297,6 +1389,7 @@
       await loadUsers();
       await loadTerms();
       await loadDriveStatus();
+      await loadAllAdminPlansTable();
 
       // Modal backdrop click-to-close listener
       document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
@@ -1715,7 +1808,7 @@
 
     function switchAdminTab(tab) {
       currentAdminTab = tab;
-      ['users', 'depts', 'terms', 'stats', 'tools', 'drive'].forEach(t => {
+      ['plans', 'users', 'depts', 'terms', 'stats', 'tools', 'drive'].forEach(t => {
         const btn = document.getElementById(`tab${capitalize(t)}Btn`);
         const section = document.getElementById(`adminSection${capitalize(t)}`);
         if (btn && section) {
@@ -1729,12 +1822,17 @@
         }
       });
       updateMainActionBtn(tab);
+      if (tab === 'plans' && (!allAdminPlansData || allAdminPlansData.length === 0)) {
+        loadAllAdminPlansTable();
+      }
     }
 
     function updateMainActionBtn(tab) {
       const btn = document.getElementById('adminMainActionBtn');
       if (!btn) return;
-      if (tab === 'users') {
+      if (tab === 'plans') {
+        btn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> รีเฟรชแผนทั้งหมด';
+      } else if (tab === 'users') {
         btn.innerHTML = '<i class="fa-solid fa-user-plus"></i> เพิ่มผู้ใช้งานใหม่';
       } else if (tab === 'depts') {
         btn.innerHTML = '<i class="fa-solid fa-plus"></i> เพิ่มหมวดวิชาใหม่';
@@ -1750,7 +1848,9 @@
     }
 
     function handleMainAdminAction() {
-      if (currentAdminTab === 'users') {
+      if (currentAdminTab === 'plans') {
+        loadAllAdminPlansTable();
+      } else if (currentAdminTab === 'users') {
         openAddUserModal();
       } else if (currentAdminTab === 'depts') {
         openAddDeptModal();
@@ -1762,6 +1862,259 @@
         verifySystemTimelines();
       } else if (currentAdminTab === 'drive') {
         syncAllGoogleDriveFolders();
+      }
+    }
+
+    // -------------------------------------------------------------
+    // Lesson Plans Management & Deletion Logic (Admin Console)
+    // -------------------------------------------------------------
+    let allAdminPlansData = [];
+
+    async function loadAllAdminPlansTable() {
+      const tbody = document.getElementById('adminPlansTableBody');
+      if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8; padding: 2rem;"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดรายชื่อแผนการสอน...</td></tr>';
+      }
+
+      try {
+        const res = await fetch('/api/admin/plans?filter_mode=all');
+        const json = await res.json();
+        if (!json.success || !json.data) {
+          if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #ef4444; padding: 2rem;">ไม่สามารถโหลดข้อมูลแผนการสอนได้</td></tr>';
+          return;
+        }
+
+        allAdminPlansData = json.data;
+
+        // Update badge
+        const badgeEl = document.getElementById('adminPlansCountBadge');
+        if (badgeEl) badgeEl.textContent = allAdminPlansData.length;
+
+        // Update KPI Counters
+        let approvedCount = 0;
+        let pendingCount = 0;
+        let revisionCount = 0;
+
+        allAdminPlansData.forEach(p => {
+          const isApp = p.submission_status === 'approved' || p.round_2_status === 'approved';
+          const isRev = p.submission_status === 'revision_needed' || p.round_2_status === 'revision_needed';
+          if (isApp) approvedCount++;
+          else if (isRev) revisionCount++;
+          else pendingCount++;
+        });
+
+        const elTot = document.getElementById('planStatTotal'); if (elTot) elTot.textContent = allAdminPlansData.length;
+        const elApp = document.getElementById('planStatApproved'); if (elApp) elApp.textContent = approvedCount;
+        const elPen = document.getElementById('planStatPending'); if (elPen) elPen.textContent = pendingCount;
+        const elRev = document.getElementById('planStatRevision'); if (elRev) elRev.textContent = revisionCount;
+
+        // Populate filter dropdowns
+        populateAdminPlanFilters();
+
+        // Render table
+        renderAdminPlansRows(allAdminPlansData);
+
+      } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #ef4444; padding: 2rem;">เกิดข้อผิดพลาด: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function populateAdminPlanFilters() {
+      const deptSel = document.getElementById('adminPlanDeptFilter');
+      const termSel = document.getElementById('adminPlanTermFilter');
+
+      if (deptSel && deptSel.options.length <= 1 && typeof allDepartments !== 'undefined' && allDepartments.length > 0) {
+        allDepartments.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d.name;
+          opt.textContent = d.name;
+          deptSel.appendChild(opt);
+        });
+      }
+
+      if (termSel && termSel.options.length <= 1 && typeof allTerms !== 'undefined' && allTerms.length > 0) {
+        allTerms.forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t.id;
+          opt.textContent = t.name;
+          termSel.appendChild(opt);
+        });
+      }
+    }
+
+    function filterAdminPlansTable() {
+      const search = (document.getElementById('adminPlanSearchInput')?.value || '').toLowerCase().trim();
+      const dept = document.getElementById('adminPlanDeptFilter')?.value || '';
+      const term = document.getElementById('adminPlanTermFilter')?.value || '';
+      const status = document.getElementById('adminPlanStatusFilter')?.value || '';
+
+      const filtered = allAdminPlansData.filter(p => {
+        if (search) {
+          const tName = (p.teacher_name || '').toLowerCase();
+          const tEmail = (p.teacher_email || '').toLowerCase();
+          const sCode = (p.subject_code || '').toLowerCase();
+          const sName = (p.subject_name || '').toLowerCase();
+          if (!tName.includes(search) && !tEmail.includes(search) && !sCode.includes(search) && !sName.includes(search)) {
+            return false;
+          }
+        }
+        if (dept && p.teacher_department !== dept) return false;
+        if (term && p.academic_term_id !== term) return false;
+
+        if (status === 'approved') {
+          if (p.submission_status !== 'approved' && p.round_2_status !== 'approved') return false;
+        } else if (status === 'revision') {
+          if (p.submission_status !== 'revision_needed' && p.round_2_status !== 'revision_needed') return false;
+        } else if (status === 'pending') {
+          const isApp = p.submission_status === 'approved' || p.round_2_status === 'approved';
+          const isRev = p.submission_status === 'revision_needed' || p.round_2_status === 'revision_needed';
+          if (isApp || isRev) return false;
+        }
+        return true;
+      });
+
+      renderAdminPlansRows(filtered);
+    }
+
+    function renderAdminPlansRows(plans) {
+      const tbody = document.getElementById('adminPlansTableBody');
+      if (!tbody) return;
+
+      if (!plans || plans.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #94a3b8; padding: 2.5rem;"><i class="fa-solid fa-inbox" style="font-size: 1.8rem; margin-bottom: 6px; display: block; color: #cbd5e1;"></i>ไม่พบรายการแผนการสอนที่ตรงกับเงื่อนไขการค้นหา</td></tr>';
+        return;
+      }
+
+      let html = '';
+      plans.forEach(p => {
+        const hasR2 = (p.current_round == 2 || (p.round_2_status && p.round_2_status !== 'not_started'));
+        const r1App = p.submission_status === 'approved';
+        const r2App = p.round_2_status === 'approved';
+        const isApp = hasR2 ? (r1App && r2App) : r1App;
+        const isRev = p.submission_status === 'revision_needed' || p.round_2_status === 'revision_needed';
+
+        let statusBadge = '';
+        if (isApp) {
+          statusBadge = '<span class="badge badge-success" style="font-size: 0.78rem; padding: 4px 10px;"><i class="fa-solid fa-check"></i> อนุมัติสมบูรณ์</span>';
+        } else if (isRev) {
+          statusBadge = '<span class="badge badge-revision" style="font-size: 0.78rem; padding: 4px 10px;"><i class="fa-solid fa-triangle-exclamation"></i> ส่งกลับแก้ไข</span>';
+        } else {
+          statusBadge = '<span class="badge badge-submitted" style="font-size: 0.78rem; padding: 4px 10px;"><i class="fa-solid fa-clock"></i> อยู่ระหว่างตรวจ</span>';
+        }
+
+        let driveBtn = '<span style="color: #94a3b8; font-size: 0.8rem;">-</span>';
+        if (p.google_drive_view_link) {
+          driveBtn = `<a href="${p.google_drive_view_link}" target="_blank" class="btn btn-sm" style="background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 999px; font-weight: 600; padding: 4px 10px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; text-decoration: none;" title="เปิดดูไฟล์บน Google Drive"><i class="fa-brands fa-google-drive"></i> ดูบนไดรฟ์</a>`;
+        }
+
+        const viewPdfUrl = `/api/files/view-stamped/${p.id}`;
+
+        html += `
+          <tr style="border-bottom: 1px solid #f1f5f9;">
+            <td style="padding: 12px; font-size: 0.8rem; color: #64748b;">${formatAdminDate(p.created_at)}</td>
+            <td style="padding: 12px;">
+              <strong style="color: #1e293b; font-size: 0.92rem;">${escapeHtml(p.teacher_name)}</strong><br>
+              <span style="font-size: 0.78rem; color: #64748b;">${escapeHtml(p.teacher_email)}</span>
+            </td>
+            <td style="padding: 12px;">
+              <span style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; font-size: 0.76rem; font-weight: 600; padding: 3px 8px; border-radius: 999px;">
+                ${escapeHtml(p.teacher_department || '-')}
+              </span>
+            </td>
+            <td style="padding: 12px;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-weight: 700; color: #0f172a;">${escapeHtml(p.subject_code)}</code>
+                ${hasR2 ? '<span style="background: #f0fdfa; color: #0d9488; border: 1px solid #99f6e4; font-size: 0.72rem; padding: 1px 6px; border-radius: 4px; font-weight: 600;">ครั้งที่ 2</span>' : '<span style="background: #f8fafc; color: #64748b; font-size: 0.72rem; padding: 1px 6px; border-radius: 4px;">ครั้งที่ 1</span>'}
+              </div>
+              <div style="font-size: 0.8rem; color: #475569; margin-top: 2px;">${escapeHtml(p.subject_name)}</div>
+            </td>
+            <td style="padding: 12px;">${statusBadge}</td>
+            <td style="padding: 12px; text-align: center;">
+              <div style="display: inline-flex; gap: 6px; align-items: center;">
+                <a href="${viewPdfUrl}" target="_blank" class="btn btn-sm btn-outline" style="border-radius: 999px; padding: 4px 10px; font-size: 0.78rem;" title="ดูไฟล์ PDF ประทับตรา">
+                  <i class="fa-solid fa-file-pdf" style="color: #ef4444;"></i> ดู PDF
+                </a>
+                ${driveBtn}
+              </div>
+            </td>
+            <td style="padding: 12px; text-align: center;">
+              <button type="button" class="btn btn-sm" onclick="confirmDeletePlanAdmin('${p.id}', '${escapeHtml(p.teacher_name)}', '${escapeHtml(p.subject_code)}')"
+                style="background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 8px; padding: 6px 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;"
+                title="ลบแผนการสอนออกจากฐานข้อมูลและ Google Drive">
+                <i class="fa-solid fa-trash-can"></i> ลบ
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+
+      tbody.innerHTML = html;
+    }
+
+    function formatAdminDate(dateStr) {
+      if (!dateStr) return '-';
+      try {
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+        const day = d.getDate();
+        const month = thaiMonths[d.getMonth()];
+        const year = (d.getFullYear() + 543).toString().slice(-2);
+        const hours = String(d.getHours()).padStart(2, '0');
+        const mins = String(d.getMinutes()).padStart(2, '0');
+        return `${day} ${month} ${year} ${hours}:${mins}`;
+      } catch (e) {
+        return dateStr;
+      }
+    }
+
+    async function confirmDeletePlanAdmin(planId, teacherName, subjectCode) {
+      const result = await Swal.fire({
+        title: 'ยืนยันการลบแผนการสอน?',
+        html: `คุณต้องการลบแผนการสอนวิชา <strong>${escapeHtml(subjectCode)}</strong> ของ <strong>${escapeHtml(teacherName)}</strong> ใช่หรือไม่?<br><br><span style="font-size: 0.88rem; color: #dc2626; background: #fef2f2; padding: 8px 12px; border-radius: 6px; display: inline-block; border: 1px solid #fecaca;"><i class="fa-solid fa-triangle-exclamation"></i> ระบบจะลบข้อมูลออกจากฐานข้อมูล และลบไฟล์ PDF บน Google Drive ออกให้อัตโนมัติ</span>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc2626',
+        cancelButtonColor: '#64748b',
+        confirmButtonText: '<i class="fa-solid fa-trash-can"></i> ยืนยันลบข้อมูล',
+        cancelButtonText: 'ยกเลิก',
+        focusCancel: true
+      });
+
+      if (!result.isConfirmed) return;
+
+      Swal.fire({
+        title: 'กำลังลบแผนการสอน...',
+        text: 'กำลังลบข้อมูลในฐานข้อมูลและนำไฟล์ออกจาก Google Drive...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      try {
+        const res = await fetch(`/api/plans/${planId}`, { method: 'DELETE' });
+        const json = await res.json();
+        if (json.success) {
+          Swal.fire({
+            icon: 'success',
+            title: 'ลบสำเร็จ!',
+            text: json.message,
+            confirmButtonColor: '#10b981'
+          });
+          await loadAllAdminPlansTable();
+          await loadStats();
+        } else {
+          Swal.fire({
+            icon: 'error',
+            title: 'ไม่สามารถลบได้',
+            text: json.message || 'เกิดข้อผิดพลาดในการลบ'
+          });
+        }
+      } catch (err) {
+        Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: err.message
+        });
       }
     }
 

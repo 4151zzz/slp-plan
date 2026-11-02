@@ -1127,6 +1127,40 @@ app.get('/api/jobs/:id/events', (req, res) => {
   uploadQueue.subscribeSSE(req.params.id, res);
 });
 
+// 6. Delete Lesson Plan (DB, Local files, and Google Drive)
+app.delete(['/api/plans/:id', '/api/admin/plans/:id'], async (req, res) => {
+  try {
+    const { id } = req.params;
+    const plan = await db.get('SELECT * FROM lesson_plans WHERE id = ?', [id]);
+    if (!plan) return res.status(404).json({ success: false, message: 'ไม่พบข้อมูลแผนการสอนที่ต้องการลบ' });
+
+    if (plan.google_drive_file_id) {
+      try {
+        await googleDriveService.deleteFile(plan.google_drive_file_id);
+      } catch (e) {}
+    }
+
+    [plan.local_file_path, plan.stamped_file_path].forEach(f => {
+      if (f) {
+        const full = path.isAbsolute(f) ? f : path.resolve(__dirname, '../', f.replace(/^\//, ''));
+        if (fs.existsSync(full)) {
+          try { fs.unlinkSync(full); } catch (e) {}
+        }
+      }
+    });
+
+    await db.execute('DELETE FROM approval_timeline WHERE lesson_plan_id = ?', [id]);
+    await db.execute('DELETE FROM lesson_plans WHERE id = ?', [id]);
+
+    res.json({
+      success: true,
+      message: `ลบแผนการสอนวิชา ${plan.subject_code || ''} ของ "${plan.teacher_name || ''}" ทั้งในฐานข้อมูลและบน Google Drive เรียบร้อยแล้ว`
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 6. Get Plan by ID or Teacher's Plans
 app.get('/api/plans/:id', async (req, res) => {
   try {
@@ -1816,6 +1850,21 @@ app.post('/api/admin/plans/:id/step-review', async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// 8.9 Download Official Word Template (นท.1 & นท.2)
+app.get('/api/templates/download', (req, res) => {
+  const candidates = [
+    path.resolve(__dirname, '../public/templates/เทมเพลต_นท1_นท2.docx'),
+    path.resolve(__dirname, '../data/templates/เทมเพลต_นท1_นท2.docx'),
+    path.resolve(__dirname, '../test/เทมเพลต_นท1_นท2 (1).docx')
+  ];
+  for (const filePath of candidates) {
+    if (fs.existsSync(filePath)) {
+      return res.download(filePath, 'เทมเพลต_นท1_นท2.docx');
+    }
+  }
+  return res.status(404).send('ไม่พบไฟล์เทมเพลต');
 });
 
 // 9. View / Download Stamped Certified PDF
