@@ -549,10 +549,89 @@ async function triggerDuplicateCheck() {
     const res = await fetch(`/api/plans/check-duplicate?email=${encodeURIComponent(email)}&term_id=${encodeURIComponent(termId)}`);
     const data = await res.json();
 
+    const roundRadio = document.querySelector('input[name="submission_round"]:checked');
+    const isRound2 = roundRadio ? parseInt(roundRadio.value, 10) === 2 : (currentSubmissionRound === 2);
+
+    if (isRound2) {
+      if (data.exists && data.plan) {
+        existingPlanData = data.plan;
+
+        // Auto-fill fields from existing plan
+        if (data.plan.subject_code) document.getElementById('subjectCode').value = data.plan.subject_code;
+        if (data.plan.subject_name) document.getElementById('subjectName').value = data.plan.subject_name;
+        if (data.plan.teacher_name && !document.getElementById('teacherName').value) document.getElementById('teacherName').value = data.plan.teacher_name;
+        if (data.plan.teacher_department) document.getElementById('teacherDepartment').value = data.plan.teacher_department;
+        if (data.plan.grade_level) document.getElementById('gradeLevel').value = data.plan.grade_level;
+
+        const isR1Approved = data.plan.submission_status === 'approved';
+        const isR2Approved = data.plan.round_2_status === 'approved';
+
+        banner.style.display = 'flex';
+        const driveBtn = document.getElementById('btnViewExistingDrive');
+        const editBtn = document.getElementById('btnEditExistingBanner');
+        editBtn.style.display = 'none';
+
+        if (data.plan.google_drive_view_link) {
+          driveBtn.href = data.plan.google_drive_view_link;
+          driveBtn.style.display = 'inline-flex';
+        } else {
+          driveBtn.style.display = 'none';
+        }
+
+        if (!isR1Approved) {
+          banner.style.borderLeftColor = '#f59e0b';
+          banner.style.background = '#fffbeb';
+          document.getElementById('dupBannerTitle').innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color: #f59e0b;"></i> แผนการสอนครั้งที่ 1 ยังไม่ได้รับการอนุมัติสมบูรณ์';
+          document.getElementById('dupBannerBody').innerHTML = `
+            พบแผนวิชา <strong>${data.plan.subject_code} - ${data.plan.subject_name}</strong> ในระบบ<br>
+            สถานะครั้งที่ 1: <strong>${getStatusLabel(data.plan.submission_status)}</strong> (ต้องรอให้อนุมัติครบทั้ง 5 ระดับก่อนจึงจะส่งครั้งที่ 2 ได้)
+          `;
+          feedback.className = 'input-feedback error';
+          feedback.textContent = 'ยังไม่สามารถส่งครั้งที่ 2 ได้ เนื่องจากครั้งที่ 1 ยังอยู่ระหว่างการพิจารณา';
+        } else if (isR2Approved) {
+          banner.style.borderLeftColor = '#10b981';
+          banner.style.background = '#ecfdf5';
+          document.getElementById('dupBannerTitle').innerHTML = '<i class="fa-solid fa-circle-check" style="color: #10b981;"></i> แผนการสอนนี้ได้รับการอนุมัติครั้งที่ 2 เรียบร้อยแล้ว';
+          document.getElementById('dupBannerBody').innerHTML = `
+            วิชา <strong>${data.plan.subject_code} - ${data.plan.subject_name}</strong> ได้รับการอนุมัติครบสมบูรณ์ทั้ง 2 ครั้งแล้ว
+          `;
+          feedback.className = 'input-feedback success';
+          feedback.textContent = '✓ แผนการสอนนี้ผ่านการอนุมัติครั้งที่ 2 เรียบร้อยแล้ว';
+        } else {
+          banner.style.borderLeftColor = '#0d9488';
+          banner.style.background = '#f0fdfa';
+          document.getElementById('dupBannerTitle').innerHTML = '<i class="fa-solid fa-circle-check" style="color: #0d9488;"></i> พบแผนการสอนที่ผ่านครั้งที่ 1 แล้ว - พร้อมส่งครั้งที่ 2';
+          document.getElementById('dupBannerBody').innerHTML = `
+            วิชา <strong>${data.plan.subject_code} - ${data.plan.subject_name}</strong> (ผ่านครั้งที่ 1 แล้ว)<br>
+            <span style="font-size: 0.82rem; color: #0f766e;">ระบบจะนำไฟล์เดิมมาประทับตราต่อในช่อง ครั้งที่ 2 โดยอัตโนมัติ (หรือเลือกแนบไฟล์ใหม่ได้หากต้องการ)</span>
+          `;
+          feedback.className = 'input-feedback success';
+          feedback.textContent = `✓ พบแผนวิชา ${data.plan.subject_code} พร้อมส่งครั้งที่ 2`;
+        }
+      } else {
+        existingPlanData = null;
+        banner.style.display = 'flex';
+        banner.style.borderLeftColor = '#ef4444';
+        banner.style.background = '#fef2f2';
+        document.getElementById('dupBannerTitle').innerHTML = '<i class="fa-solid fa-circle-xmark" style="color: #ef4444;"></i> ไม่พบข้อมูลการส่งแผนครั้งที่ 1';
+        document.getElementById('dupBannerBody').innerHTML = `
+          ไม่พบประวัติการส่งแผนการสอนครั้งที่ 1 สำหรับอีเมลนี้ในภาคเรียนที่เลือก<br>
+          หากเป็นการส่งครั้งแรกของภาคเรียน กรุณาเลือก <strong>ครั้งที่ 1</strong> ด้านบน
+        `;
+        document.getElementById('btnViewExistingDrive').style.display = 'none';
+        document.getElementById('btnEditExistingBanner').style.display = 'none';
+        feedback.className = 'input-feedback error';
+        feedback.textContent = 'ไม่พบประวัติครั้งที่ 1 กรุณาเลือก "ครั้งที่ 1" เพื่อส่งแผนครั้งแรก';
+      }
+      return;
+    }
+
     if (data.exists) {
       existingPlanData = data.plan;
 
       banner.style.display = 'flex';
+      banner.style.borderLeftColor = '#2563eb';
+      banner.style.background = '#eff6ff';
       document.getElementById('dupBannerTitle').textContent = data.message;
       document.getElementById('dupBannerBody').innerHTML = `
         ท่านได้ส่งแผนวิชา <strong>${data.plan.subject_code} - ${data.plan.subject_name}</strong> ไว้แล้ว<br>
@@ -595,13 +674,33 @@ let currentSubmissionRound = 1;
 function handleSubmissionRoundChange(roundNum) {
   currentSubmissionRound = parseInt(roundNum, 10) === 2 ? 2 : 1;
   const hintEl = document.getElementById('submissionRoundHint');
-  if (hintEl) {
-    if (currentSubmissionRound === 2) {
-      hintEl.innerHTML = '<i class="fa-solid fa-circle-info" style="color: #0d9488;"></i> ส่งครั้งที่ 2 ของภาคเรียน ลายเซ็นจะประทับลงในช่อง <strong>ครั้งที่ 2 (คอลัมน์ขวา)</strong> บนหน้าบันทึกข้อความเดิม';
-    } else {
+  const fileMarker = document.getElementById('fileRequiredMarker');
+  const submitBtn = document.getElementById('btnSubmitPlan');
+
+  if (currentSubmissionRound === 2) {
+    if (hintEl) {
+      hintEl.innerHTML = '<i class="fa-solid fa-circle-info" style="color: #0d9488;"></i> <strong>ส่งครั้งที่ 2 ของภาคเรียน:</strong> ระบบจะดึงแผนการสอนเดิมที่อนุมัติแล้วมาประทับตราต่อในช่อง <strong>ครั้งที่ 2 (คอลัมน์ขวา)</strong> โดยอัตโนมัติ';
+    }
+    if (fileMarker) {
+      fileMarker.innerHTML = '<span style="font-size: 0.8rem; color: #0d9488; font-weight: normal;">(ไม่บังคับ - ใช้ไฟล์เดิมที่อนุมัติแล้ว หรือเลือกไฟล์ใหม่หากต้องการเปลี่ยน)</span>';
+    }
+    if (submitBtn && !isEditMode) {
+      submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> ยืนยันและส่งแผนการสอน (ครั้งที่ 2)';
+    }
+  } else {
+    if (hintEl) {
       hintEl.innerHTML = '<i class="fa-solid fa-circle-info text-primary"></i> ส่งครั้งแรกของภาคเรียน ลายเซ็นจะประทับลงในช่อง <strong>ครั้งที่ 1 (คอลัมน์ซ้าย)</strong>';
     }
+    if (fileMarker) {
+      fileMarker.innerHTML = '*';
+    }
+    if (submitBtn && !isEditMode) {
+      submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> ยืนยันและส่งแผนการสอน';
+    }
   }
+
+  // Trigger re-check duplicate for the chosen round
+  triggerDuplicateCheck();
 }
 
 // 4. Form Submission & Real-Time Non-blocking Queue Progress
@@ -659,7 +758,10 @@ async function handleFormSubmit(e) {
   }
   document.getElementById('signatureFeedback').textContent = '';
 
-  if (!isEditMode && !currentSelectedFile) {
+  const roundRadio = document.querySelector('input[name="submission_round"]:checked');
+  const subRound = roundRadio ? parseInt(roundRadio.value, 10) : (typeof currentSubmissionRound !== 'undefined' ? currentSubmissionRound : 1);
+
+  if (!isEditMode && subRound !== 2 && !currentSelectedFile) {
     resetSubmitBtn();
     Swal.fire({
       icon: 'warning',
@@ -670,10 +772,174 @@ async function handleFormSubmit(e) {
     return;
   }
 
-  const roundRadio = document.querySelector('input[name="submission_round"]:checked');
-  const subRound = roundRadio ? parseInt(roundRadio.value, 10) : (typeof currentSubmissionRound !== 'undefined' ? currentSubmissionRound : 1);
-
   const signatureData = signaturePad.toDataURL('image/png');
+
+  // Helper to reliably convert base64 dataURL to Uint8Array without network fetch()
+  function base64ToUint8Array(dataUrl) {
+    const parts = dataUrl.split(',');
+    const b64 = parts.length > 1 ? parts[1] : parts[0];
+    const binaryStr = atob(b64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  // -------------------------------------------------------------
+  // Round 2 Submission Handler from Main Form
+  // -------------------------------------------------------------
+  if (subRound === 2) {
+    if (!existingPlanData || !existingPlanData.id) {
+      try {
+        const chkRes = await fetch(`/api/plans/check-duplicate?email=${encodeURIComponent(teacherEmail)}&term_id=${encodeURIComponent(termId)}`);
+        const chkData = await chkRes.json();
+        if (chkData && chkData.exists && chkData.plan) {
+          existingPlanData = chkData.plan;
+        }
+      } catch (err) {}
+    }
+
+    if (!existingPlanData || !existingPlanData.id) {
+      resetSubmitBtn();
+      Swal.fire({
+        icon: 'warning',
+        title: 'ไม่พบข้อมูลแผนการสอนครั้งที่ 1',
+        text: 'ไม่พบประวัติการส่งแผนการสอนครั้งที่ 1 ในภาคเรียนนี้ กรุณาเลือก "ครั้งที่ 1" เพื่อส่งแผนครั้งแรก',
+        confirmButtonColor: '#2563eb'
+      });
+      return;
+    }
+
+    if (existingPlanData.submission_status !== 'approved') {
+      resetSubmitBtn();
+      Swal.fire({
+        icon: 'warning',
+        title: 'ครั้งที่ 1 ยังไม่ได้รับการอนุมัติ',
+        text: `แผนการสอนครั้งที่ 1 ยังอยู่ระหว่างการตรวจสอบ (สถานะ: ${getStatusLabel(existingPlanData.submission_status)}) ต้องรอให้อนุมัติครบทุกระดับก่อนจึงจะส่งครั้งที่ 2 ได้`,
+        confirmButtonColor: '#2563eb'
+      });
+      return;
+    }
+
+    const planId = existingPlanData.id;
+    openQueueModal();
+    updateQueueUI({ status: 'validating', progress: 30, message: 'กำลังเตรียมไฟล์และข้อมูลสำหรับส่งครั้งที่ 2...' });
+
+    let fileToUpload = currentSelectedFile;
+
+    if (!fileToUpload) {
+      // Re-use existing approved PDF from server and stamp teacher signature in Column 2
+      updateQueueUI({ status: 'stamping_signature', progress: 45, message: 'กำลังดึงไฟล์เอกสารเดิมที่ผ่านการอนุมัติครั้งที่ 1...' });
+      try {
+        const dlRes = await fetch(`${window.API_BASE_URL || '/api'}/files/download/${planId}`);
+        if (dlRes.ok && window.PDFLib) {
+          updateQueueUI({ status: 'stamping_signature', progress: 55, message: 'กำลังประทับตราลายเซ็นครูผู้สอนในช่องครั้งที่ 2 (คอลัมน์ขวา)...' });
+          const dlBytes = await dlRes.arrayBuffer();
+          const pdfDoc = await PDFLib.PDFDocument.load(dlBytes, { ignoreEncryption: true });
+          const pages = pdfDoc.getPages();
+          if (pages.length > 0) {
+            const targetPage = pages[0];
+            const scaleX = targetPage.getWidth() / 595.32;
+            const scaleY = targetPage.getHeight() / 841.92;
+            const toPdfX = (imgX) => imgX * scaleX;
+            const toPdfY = (imgY) => targetPage.getHeight() - (imgY * scaleY);
+
+            const sigBytes = base64ToUint8Array(signatureData);
+            const sigImage = await pdfDoc.embedPng(sigBytes);
+            const sigSlotX = toPdfX(411);
+            const sigSlotY = toPdfY(425);
+            const renderW = 80 * scaleX;
+            const renderH = 22 * scaleY;
+
+            targetPage.drawImage(sigImage, {
+              x: sigSlotX - (renderW / 2),
+              y: sigSlotY - (renderH / 2) + 2,
+              width: renderW,
+              height: renderH
+            });
+
+            const stampedBytes = await pdfDoc.save();
+            const origName = existingPlanData.file_original_name || 'lesson_plan.pdf';
+            fileToUpload = new File([stampedBytes], origName, { type: 'application/pdf' });
+          }
+        }
+      } catch (dlErr) {
+        console.warn('Failed to fetch existing PDF for R2 stamping:', dlErr);
+      }
+    } else if (fileToUpload && window.PDFLib) {
+      // Stamp newly uploaded file on Column 2
+      updateQueueUI({ status: 'stamping_signature', progress: 55, message: 'กำลังประทับตราลายเซ็นครูผู้สอนในช่องครั้งที่ 2 บนไฟล์ใหม่...' });
+      try {
+        const fileBuffer = await fileToUpload.arrayBuffer();
+        const pdfDoc = await PDFLib.PDFDocument.load(fileBuffer, { ignoreEncryption: true });
+        const pages = pdfDoc.getPages();
+        if (pages.length > 0) {
+          const targetPage = pages[0];
+          const scaleX = targetPage.getWidth() / 595.32;
+          const scaleY = targetPage.getHeight() / 841.92;
+          const toPdfX = (imgX) => imgX * scaleX;
+          const toPdfY = (imgY) => targetPage.getHeight() - (imgY * scaleY);
+
+          const sigBytes = base64ToUint8Array(signatureData);
+          const sigImage = await pdfDoc.embedPng(sigBytes);
+          const sigSlotX = toPdfX(411);
+          const sigSlotY = toPdfY(425);
+          const renderW = 80 * scaleX;
+          const renderH = 22 * scaleY;
+
+          targetPage.drawImage(sigImage, {
+            x: sigSlotX - (renderW / 2),
+            y: sigSlotY - (renderH / 2) + 2,
+            width: renderW,
+            height: renderH
+          });
+
+          const stampedBytes = await pdfDoc.save();
+          fileToUpload = new File([stampedBytes], currentSelectedFile.name, { type: 'application/pdf' });
+        }
+      } catch (stampErr) {
+        console.warn('Error stamping new R2 file:', stampErr);
+      }
+    }
+
+    updateQueueUI({ status: 'uploading_drive', progress: 75, message: 'กำลังนำส่งไฟล์ขึ้น Google Drive และจัดระเบียบข้อมูลครั้งที่ 2...' });
+    const r2FormData = new FormData();
+    r2FormData.append('signature_data', signatureData);
+    if (fileToUpload) {
+      r2FormData.append('pdf_file', fileToUpload);
+    }
+
+    try {
+      const r2Res = await fetch(`/api/plans/${planId}/submit-round-2`, {
+        method: 'POST',
+        body: r2FormData
+      });
+      const r2Json = await r2Res.json();
+      if (!r2Res.ok || !r2Json.success) {
+        throw new Error(r2Json.message || 'ไม่สามารถส่งครั้งที่ 2 ได้');
+      }
+
+      updateQueueUI({
+        status: 'completed',
+        progress: 100,
+        message: 'ส่งแผนการสอนครั้งที่ 2 สำเร็จ ระบบได้ประทับตราและนำส่ง Google Drive เรียบร้อยแล้ว',
+        driveViewLink: r2Json.driveViewLink || (existingPlanData && existingPlanData.google_drive_view_link)
+      }, planId);
+    } catch (r2Err) {
+      resetSubmitBtn();
+      closeQueueModal();
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาดในการส่งครั้งที่ 2',
+        text: r2Err.message,
+        confirmButtonColor: '#ef4444'
+      });
+    } finally {
+      resetSubmitBtn();
+    }
+    return;
+  }
 
   openQueueModal();
   updateQueueUI({ status: 'validating', progress: 25, message: 'กำลังตรวจสอบไฟล์และข้อมูล...' });
@@ -1020,6 +1286,22 @@ async function loadPlanIntoEditMode(planOrId) {
   editingPlanId = planId;
 
   try {
+    // 1. Snapshot / Archive current version and status before editing
+    let snapVerNum = 1;
+    try {
+      const snapRes = await fetch(`/api/plans/${planId}/snapshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'ก่อนเริ่มแก้ไขแผนการสอน / ส่งฉบับปรับปรุง' })
+      });
+      const snapJson = await snapRes.json();
+      if (snapJson.success && snapJson.data) {
+        snapVerNum = snapJson.data.versionNumber;
+      }
+    } catch (snapErr) {
+      console.warn('Snapshot notice:', snapErr);
+    }
+
     const res = await fetch(`/api/plans/${planId}`);
     const json = await res.json();
     const p = json.data || (typeof planOrId === 'object' ? planOrId : null);
@@ -1040,10 +1322,22 @@ async function loadPlanIntoEditMode(planOrId) {
     setVal('subjectName', p.subject_name);
 
     const editNotice = document.getElementById('editModeNotice');
-    if (editNotice) editNotice.style.display = 'flex';
-
-    const editPlanIdDisplay = document.getElementById('editingPlanIdDisplay');
-    if (editPlanIdDisplay) editPlanIdDisplay.textContent = `${p.subject_code || ''} - ${p.subject_name || ''}`;
+    if (editNotice) {
+      editNotice.style.display = 'flex';
+      editNotice.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <i class="fa-solid fa-pen-to-square"></i> กำลังแก้ไขแผนการสอน: <strong>${p.subject_code || ''} - ${p.subject_name || ''}</strong>
+            <div style="font-size: 0.82rem; color: #0d9488; margin-top: 3px;">
+              <i class="fa-solid fa-clock-rotate-left"></i> สำรองประวัติสถานะและไฟล์เวอร์ชันเดิม (V.${snapVerNum}) ไว้เรียบร้อยแล้ว ท่านสามารถแก้ไขหรือแนบไฟล์ใหม่ได้อย่างปลอดภัย
+            </div>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline" onclick="cancelEditMode()" style="border-radius: var(--radius-full); font-size: 0.8rem;">
+            <i class="fa-solid fa-xmark"></i> ยกเลิกโหมดแก้ไข
+          </button>
+        </div>
+      `;
+    }
 
     const modeBadge = document.getElementById('modeBadge');
     if (modeBadge) {
@@ -1066,6 +1360,15 @@ async function loadPlanIntoEditMode(planOrId) {
     switchTab('submit');
     const panel = document.getElementById('panelSubmit');
     if (panel) panel.scrollIntoView({ behavior: 'smooth' });
+
+    Swal.fire({
+      icon: 'success',
+      title: 'สำรองเวอร์ชันเดิมเรียบร้อยแล้ว',
+      html: `ระบบได้บันทึกสำรอง <strong>เวอร์ชัน ${snapVerNum} (สถานะ: ${getStatusLabel(p.submission_status)})</strong> ไว้ในประวัติแล้ว<br><span style="font-size: 0.85rem; color: #475569;">ท่านสามารถเริ่มแก้ไขข้อมูลหรือแนบไฟล์ใหม่ได้ทันที</span>`,
+      timer: 3000,
+      timerProgressBar: true,
+      showConfirmButton: false
+    });
   } catch (e) {
     console.error('Failed to load plan into edit:', e);
     Swal.fire({
@@ -2495,7 +2798,48 @@ async function submitRound2Quick() {
   const file = fileInput && fileInput.files ? fileInput.files[0] : null;
 
   let fileToUpload = file;
-  if (file && window.PDFLib) {
+  if (!fileToUpload) {
+    // If no new file provided, fetch existing approved PDF and stamp teacher signature in Column 2
+    try {
+      const pdfResp = await fetch(`${(window.API_BASE_URL || '/api')}/files/download/${planId}`);
+      if (pdfResp.ok && window.PDFLib) {
+        const fileBuffer = await pdfResp.arrayBuffer();
+        const pdfDoc = await PDFLib.PDFDocument.load(fileBuffer, { ignoreEncryption: true });
+        const pages = pdfDoc.getPages();
+        if (pages.length > 0) {
+          const targetPage = pages[0];
+          const scaleX = targetPage.getWidth() / 595.32;
+          const scaleY = targetPage.getHeight() / 841.92;
+          const toPdfX = (imgX) => imgX * scaleX;
+          const toPdfY = (imgY) => targetPage.getHeight() - (imgY * scaleY);
+
+          const parts = signatureData.split(',');
+          const b64 = parts.length > 1 ? parts[1] : parts[0];
+          const binaryStr = atob(b64);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+          const sigImage = await pdfDoc.embedPng(bytes);
+          const sigSlotX = toPdfX(411);
+          const sigSlotY = toPdfY(425);
+          const renderW = 80 * scaleX;
+          const renderH = 22 * scaleY;
+
+          targetPage.drawImage(sigImage, {
+            x: sigSlotX - (renderW / 2),
+            y: sigSlotY - (renderH / 2) + 2,
+            width: renderW,
+            height: renderH
+          });
+
+          const stampedPdfBytes = await pdfDoc.save();
+          fileToUpload = new File([stampedPdfBytes], 'plan_round2.pdf', { type: 'application/pdf' });
+        }
+      }
+    } catch (e) {
+      console.warn('R2 auto-stamp notice:', e);
+    }
+  } else if (file && window.PDFLib) {
     try {
       const fileBuffer = await file.arrayBuffer();
       const pdfDoc = await PDFLib.PDFDocument.load(fileBuffer, { ignoreEncryption: true });

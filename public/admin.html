@@ -2030,11 +2030,14 @@
             </td>
             <td style="padding: 12px;">${statusBadge}</td>
             <td style="padding: 12px; text-align: center;">
-              <div style="display: inline-flex; gap: 6px; align-items: center;">
+              <div style="display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center;">
                 <a href="${viewPdfUrl}" target="_blank" class="btn btn-sm btn-outline" style="border-radius: 999px; padding: 4px 10px; font-size: 0.78rem;" title="ดูไฟล์ PDF ประทับตรา">
                   <i class="fa-solid fa-file-pdf" style="color: #ef4444;"></i> ดู PDF
                 </a>
                 ${driveBtn}
+                <button type="button" class="btn btn-sm btn-outline" onclick="viewPlanVersions('${p.id}', '${escapeHtml(p.subject_code)}')" style="border-radius: 999px; padding: 4px 8px; font-size: 0.78rem; color: #475569;" title="ดูประวัติการแก้ไขและเวอร์ชัน">
+                  <i class="fa-solid fa-clock-rotate-left"></i> ประวัติ
+                </button>
               </div>
             </td>
             <td style="padding: 12px; text-align: center;">
@@ -2049,6 +2052,48 @@
       });
 
       tbody.innerHTML = html;
+    }
+
+    async function viewPlanVersions(planId, subjectCode) {
+      try {
+        const res = await fetch(`/api/plans/${planId}/versions`);
+        const json = await res.json();
+        if (!json.success || !json.data || json.data.length === 0) {
+          Swal.fire({
+            icon: 'info',
+            title: `ประวัติเวอร์ชัน: ${subjectCode}`,
+            text: 'แผนการสอนนี้ยังไม่มีการแก้ไขเพิ่มเติม (ยังคงเป็นเวอร์ชันแรกเริ่ม)',
+            confirmButtonColor: '#2563eb'
+          });
+          return;
+        }
+
+        let rowsHtml = json.data.map(v => `
+          <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; text-align: left; background: #f8fafc;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <strong style="color: #1e3a8a; font-size: 0.95rem;">
+                <i class="fa-solid fa-code-commit"></i> เวอร์ชัน ${v.version_number}
+              </strong>
+              <span style="font-size: 0.78rem; color: #64748b;">${formatAdminDate(v.created_at)}</span>
+            </div>
+            <div style="font-size: 0.82rem; color: #334155; margin-bottom: 4px;">
+              <strong>สถานะเดิม:</strong> ${getStatusLabel(v.submission_status)} | <strong>บันทึก:</strong> ${escapeHtml(v.snapshot_reason || '-')}
+            </div>
+            ${v.reviewer_feedback ? `<div style="font-size: 0.8rem; color: #b91c1c; background: #fff1f2; padding: 4px 8px; border-radius: 4px; margin-top: 4px;"><strong>ข้อเสนอแนะเดิม:</strong> ${escapeHtml(v.reviewer_feedback)}</div>` : ''}
+            ${v.google_drive_view_link ? `<a href="${v.google_drive_view_link}" target="_blank" style="font-size: 0.78rem; color: #047857; text-decoration: underline; margin-top: 4px; display: inline-block;"><i class="fa-brands fa-google-drive"></i> ดูไฟล์เวอร์ชันนี้บน Drive</a>` : ''}
+          </div>
+        `).join('');
+
+        Swal.fire({
+          title: `<i class="fa-solid fa-clock-rotate-left"></i> ประวัติเวอร์ชัน (${subjectCode})`,
+          html: `<div style="max-height: 400px; overflow-y: auto;">${rowsHtml}</div>`,
+          width: 550,
+          confirmButtonText: 'ปิด',
+          confirmButtonColor: '#2563eb'
+        });
+      } catch (err) {
+        Swal.fire({ icon: 'error', title: 'เกิดข้อผิดพลาด', text: err.message });
+      }
     }
 
     function formatAdminDate(dateStr) {

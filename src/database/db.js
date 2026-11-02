@@ -192,6 +192,36 @@ async function initSqliteSchema(db) {
       description TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS lesson_plan_versions (
+      id TEXT PRIMARY KEY,
+      lesson_plan_id TEXT NOT NULL,
+      version_number INTEGER NOT NULL DEFAULT 1,
+      teacher_name TEXT,
+      teacher_email TEXT,
+      teacher_department TEXT,
+      academic_term_id TEXT,
+      subject_code TEXT,
+      subject_name TEXT,
+      grade_level TEXT,
+      submission_status TEXT DEFAULT 'submitted',
+      current_stage TEXT DEFAULT 'dept_head',
+      current_reviewer_title TEXT,
+      reviewer_feedback TEXT,
+      file_original_name TEXT,
+      file_size INTEGER,
+      local_file_path TEXT,
+      stamped_file_path TEXT,
+      google_drive_file_id TEXT,
+      google_drive_view_link TEXT,
+      google_drive_download_link TEXT,
+      signature_data TEXT,
+      submission_round INTEGER DEFAULT 1,
+      current_round INTEGER DEFAULT 1,
+      round_2_status TEXT DEFAULT 'not_started',
+      snapshot_reason TEXT DEFAULT 'ก่อนแก้ไขแผนการสอน',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `;
 
   // Run schema commands sequentially
@@ -387,6 +417,37 @@ async function initMySQLSchema(pool) {
       error_message TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `CREATE TABLE IF NOT EXISTS lesson_plan_versions (
+      id VARCHAR(64) PRIMARY KEY,
+      lesson_plan_id VARCHAR(64) NOT NULL,
+      version_number INT NOT NULL DEFAULT 1,
+      teacher_name VARCHAR(255),
+      teacher_email VARCHAR(255),
+      teacher_department VARCHAR(255),
+      academic_term_id VARCHAR(64),
+      subject_code VARCHAR(64),
+      subject_name VARCHAR(255),
+      grade_level VARCHAR(64),
+      submission_status VARCHAR(64) DEFAULT 'submitted',
+      current_stage VARCHAR(64) DEFAULT 'dept_head',
+      current_reviewer_title VARCHAR(255),
+      reviewer_feedback TEXT,
+      file_original_name VARCHAR(255),
+      file_size BIGINT,
+      local_file_path TEXT,
+      stamped_file_path TEXT,
+      google_drive_file_id VARCHAR(255),
+      google_drive_view_link TEXT,
+      google_drive_download_link TEXT,
+      signature_data LONGTEXT,
+      submission_round INT DEFAULT 1,
+      current_round INT DEFAULT 1,
+      round_2_status VARCHAR(64) DEFAULT 'not_started',
+      snapshot_reason VARCHAR(255) DEFAULT 'ก่อนแก้ไขแผนการสอน',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_plan_version (lesson_plan_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
   ];
 

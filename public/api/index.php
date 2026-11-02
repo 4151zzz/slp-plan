@@ -180,6 +180,116 @@ function init_approval_timeline($pdo, $planId, $teacherName, $currentStage = 'de
 }
 
 // -------------------------------------------------------------
+// Version Snapshot Helpers (Auto-archive version before editing)
+// -------------------------------------------------------------
+function ensure_plan_versions_table($pdo) {
+    static $checked = false;
+    if ($checked) return;
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `lesson_plan_versions` (
+            `id` VARCHAR(64) NOT NULL,
+            `lesson_plan_id` VARCHAR(64) NOT NULL,
+            `version_number` INT NOT NULL DEFAULT 1,
+            `teacher_name` VARCHAR(255) DEFAULT NULL,
+            `teacher_email` VARCHAR(255) DEFAULT NULL,
+            `teacher_department` VARCHAR(255) DEFAULT NULL,
+            `academic_term_id` VARCHAR(64) DEFAULT NULL,
+            `subject_code` VARCHAR(64) DEFAULT NULL,
+            `subject_name` VARCHAR(255) DEFAULT NULL,
+            `grade_level` VARCHAR(64) DEFAULT NULL,
+            `submission_status` VARCHAR(64) DEFAULT 'submitted',
+            `current_stage` VARCHAR(64) DEFAULT 'dept_head',
+            `current_reviewer_title` VARCHAR(255) DEFAULT NULL,
+            `reviewer_feedback` TEXT DEFAULT NULL,
+            `file_original_name` VARCHAR(255) DEFAULT NULL,
+            `file_size` BIGINT DEFAULT NULL,
+            `local_file_path` TEXT DEFAULT NULL,
+            `stamped_file_path` TEXT DEFAULT NULL,
+            `google_drive_file_id` VARCHAR(255) DEFAULT NULL,
+            `google_drive_view_link` TEXT DEFAULT NULL,
+            `google_drive_download_link` TEXT DEFAULT NULL,
+            `signature_data` LONGTEXT DEFAULT NULL,
+            `submission_round` INT DEFAULT 1,
+            `current_round` INT DEFAULT 1,
+            `round_2_status` VARCHAR(64) DEFAULT 'not_started',
+            `snapshot_reason` VARCHAR(255) DEFAULT 'ก่อนแก้ไขแผนการสอน',
+            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_plan_version` (`lesson_plan_id`),
+            KEY `idx_version_num` (`version_number`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ");
+    $checked = true;
+}
+
+function create_plan_snapshot($pdo, $planId, $reason = 'ก่อนแก้ไขแผนการสอน') {
+    ensure_plan_versions_table($pdo);
+
+    $stmt = $pdo->prepare("SELECT * FROM lesson_plans WHERE id = ?");
+    $stmt->execute([$planId]);
+    $p = $stmt->fetch();
+    if (!$p) return null;
+
+    // Check next version number
+    $vStmt = $pdo->prepare("SELECT COALESCE(MAX(version_number), 0) + 1 FROM lesson_plan_versions WHERE lesson_plan_id = ?");
+    $vStmt->execute([$planId]);
+    $nextVer = intval($vStmt->fetchColumn() ?: 1);
+
+    // Create a preserved backup copy of local file if exists
+    $backupLocalPath = $p['local_file_path'];
+    $sourceFile = $p['stamped_file_path'] ?: $p['local_file_path'];
+    if (!empty($sourceFile)) {
+        $realFile = __DIR__ . '/../../' . ltrim($sourceFile, '/');
+        if (file_exists($realFile) && is_file($realFile)) {
+            $ext = pathinfo($realFile, PATHINFO_EXTENSION) ?: 'pdf';
+            $backupFilename = 'plan_backup_v' . $nextVer . '_' . time() . '_' . substr(gen_uuid(), 0, 6) . '.' . $ext;
+            $backupDir = dirname($realFile);
+            $backupFullPath = $backupDir . '/' . $backupFilename;
+            if (@copy($realFile, $backupFullPath)) {
+                $backupLocalPath = 'data/uploads/' . $backupFilename;
+            }
+        }
+    }
+
+    $verId = gen_uuid();
+    $ins = $pdo->prepare("
+        INSERT INTO lesson_plan_versions (
+            id, lesson_plan_id, version_number, teacher_name, teacher_email,
+            teacher_department, academic_term_id, subject_code, subject_name,
+            grade_level, submission_status, current_stage, current_reviewer_title,
+            reviewer_feedback, file_original_name, file_size, local_file_path,
+            stamped_file_path, google_drive_file_id, google_drive_view_link,
+            google_drive_download_link, signature_data, submission_round,
+            current_round, round_2_status, snapshot_reason, created_at
+        ) VALUES (
+            ?, ?, ?, ?, ?,
+            ?, ?, ?, ?,
+            ?, ?, ?, ?,
+            ?, ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?, NOW()
+        )
+    ");
+    $ins->execute([
+        $verId, $p['id'], $nextVer, $p['teacher_name'], $p['teacher_email'],
+        $p['teacher_department'], $p['academic_term_id'], $p['subject_code'], $p['subject_name'],
+        $p['grade_level'], $p['submission_status'], $p['current_stage'], $p['current_reviewer_title'],
+        $p['reviewer_feedback'], $p['file_original_name'], $p['file_size'], $backupLocalPath,
+        $p['stamped_file_path'], $p['google_drive_file_id'], $p['google_drive_view_link'],
+        $p['google_drive_download_link'], $p['signature_data'], $p['submission_round'] ?? 1,
+        $p['current_round'] ?? 1, $p['round_2_status'] ?? 'not_started', $reason
+    ]);
+
+    return [
+        'versionId' => $verId,
+        'versionNumber' => $nextVer,
+        'status' => $p['submission_status'],
+        'created_at' => date('c')
+    ];
+}
+
+// -------------------------------------------------------------
 // Route Parsing
 // -------------------------------------------------------------
 $uri = $_SERVER['REQUEST_URI'];
@@ -425,7 +535,14 @@ if ($method === 'GET' && $path === '/plans/check-duplicate') {
                 'id' => $existing['id'],
                 'subject_code' => $existing['subject_code'],
                 'subject_name' => $existing['subject_name'],
+                'teacher_name' => $existing['teacher_name'],
+                'teacher_department' => $existing['teacher_department'],
+                'grade_level' => $existing['grade_level'],
                 'submission_status' => $existing['submission_status'],
+                'current_stage' => $existing['current_stage'],
+                'round_2_status' => $existing['round_2_status'] ?? 'not_started',
+                'round_2_stage' => $existing['round_2_stage'] ?? 'dept_head',
+                'file_original_name' => $existing['file_original_name'],
                 'created_at' => $existing['created_at'],
                 'reviewer_feedback' => $existing['reviewer_feedback'],
                 'google_drive_view_link' => $existing['google_drive_view_link']
@@ -448,6 +565,7 @@ if ($method === 'POST' && $path === '/plans/submit') {
     $subjectName = trim($_POST['subject_name'] ?? '');
     $gradeLevel = trim($_POST['grade_level'] ?? '');
     $signatureData = $_POST['signature_data'] ?? null;
+    $subRound = intval($_POST['submission_round'] ?? 1);
 
     if (!$termId || !$teacherName || !$teacherEmail || !$subjectCode || !$subjectName) {
         json_resp(['success' => false, 'message' => 'กรุณากรอกข้อมูลให้ครบถ้วนทุกช่อง'], 400);
@@ -457,6 +575,71 @@ if ($method === 'POST' && $path === '/plans/submit') {
     $chk = $pdo->prepare("SELECT * FROM lesson_plans WHERE LOWER(teacher_email) = ? AND academic_term_id = ?");
     $chk->execute([$teacherEmail, $termId]);
     $existingPlan = $chk->fetch();
+
+    // Special handling if submitting as Round 2
+    if ($subRound === 2 && $existingPlan) {
+        if ($existingPlan['submission_status'] !== 'approved') {
+            json_resp([
+                'success' => false,
+                'message' => 'ไม่สามารถส่งครั้งที่ 2 ได้ เนื่องจากแผนการสอนครั้งที่ 1 ยังไม่ได้รับการอนุมัติสมบูรณ์'
+            ], 400);
+        }
+
+        $planId = $existingPlan['id'];
+        $sig2 = $signatureData ?: $existingPlan['round_2_signature'];
+        $stmt = $pdo->prepare("UPDATE lesson_plans SET round_2_signature = ?, round_2_signed_at = NOW(), round_2_status = 'submitted', round_2_stage = 'dept_head', current_round = 2 WHERE id = ?");
+        $stmt->execute([$sig2, $planId]);
+
+        $newDriveLink = $existingPlan['google_drive_view_link'] ?? null;
+        if (isset($_FILES['pdf_file']) && $_FILES['pdf_file']['error'] === UPLOAD_ERR_OK) {
+            $file = $_FILES['pdf_file'];
+            $uploadDir = __DIR__ . '/../../data/uploads';
+            ensure_dir($uploadDir);
+
+            $uniqueFileName = 'plan_' . time() . '_' . substr(gen_uuid(), 0, 8) . '.pdf';
+            $destPath = $uploadDir . '/' . $uniqueFileName;
+            move_uploaded_file($file['tmp_name'], $destPath);
+            $newLocalPath = 'data/uploads/' . $uniqueFileName;
+
+            $oldDriveIdR2 = $existingPlan['google_drive_file_id'] ?? null;
+            try {
+                $r2OrigName = $existingPlan['file_original_name'] ?: 'lesson_plan.pdf';
+                $r2Dept = $existingPlan['teacher_department'] ?: 'ทั่วไป';
+                $r2Teacher = $existingPlan['teacher_name'] ?: 'ครูผู้สอน';
+                $driveRes = uploadViaGoogleScript($destPath, $r2OrigName, $r2Dept, $r2Teacher, null);
+                if (!$driveRes) {
+                    $token = getGoogleAccessToken();
+                    if ($token) {
+                        $rootFolderId = '1hZ3MNDvHOK2mfUxQPIauuN9smqvDXlXt';
+                        $driveRes = uploadFileToGoogleDrive($token, $destPath, $r2OrigName, $rootFolderId, $r2Dept, $r2Teacher);
+                    }
+                }
+                if ($driveRes && !empty($driveRes['fileId'])) {
+                    $upd = $pdo->prepare("UPDATE lesson_plans SET local_file_path = ?, stamped_file_path = ?, google_drive_file_id = ?, google_drive_view_link = ?, google_drive_download_link = ? WHERE id = ?");
+                    $upd->execute([$newLocalPath, $newLocalPath, $driveRes['fileId'], $driveRes['webViewLink'], $driveRes['downloadLink'], $planId]);
+                    $newDriveLink = $driveRes['webViewLink'];
+                    if (!empty($oldDriveIdR2) && $oldDriveIdR2 !== $driveRes['fileId']) {
+                        deleteGoogleDriveFile($oldDriveIdR2);
+                    }
+                } else {
+                    $upd = $pdo->prepare("UPDATE lesson_plans SET local_file_path = ?, stamped_file_path = ? WHERE id = ?");
+                    $upd->execute([$newLocalPath, $newLocalPath, $planId]);
+                }
+            } catch (Exception $e) {
+                $upd = $pdo->prepare("UPDATE lesson_plans SET local_file_path = ?, stamped_file_path = ? WHERE id = ?");
+                $upd->execute([$newLocalPath, $newLocalPath, $planId]);
+            }
+        }
+
+        init_approval_timeline($pdo, $planId, $teacherName, 'dept_head', 'submitted', 2);
+        json_resp([
+            'success' => true,
+            'message' => 'บันทึกการส่งและลงนามครั้งที่ 2 สำเร็จ',
+            'planId' => $planId,
+            'driveViewLink' => $newDriveLink
+        ]);
+    }
+
     if ($existingPlan) {
         $canEdit = in_array($existingPlan['submission_status'], ['submitted', 'revision_needed', 'draft']);
         json_resp([
@@ -467,6 +650,9 @@ if ($method === 'POST' && $path === '/plans/submit') {
                 'id' => $existingPlan['id'],
                 'subject_code' => $existingPlan['subject_code'],
                 'subject_name' => $existingPlan['subject_name'],
+                'teacher_name' => $existingPlan['teacher_name'],
+                'teacher_department' => $existingPlan['teacher_department'],
+                'grade_level' => $existingPlan['grade_level'],
                 'submission_status' => $existingPlan['submission_status'],
                 'created_at' => $existingPlan['created_at'],
                 'reviewer_feedback' => $existingPlan['reviewer_feedback'],
@@ -579,6 +765,9 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
         ], 403);
     }
 
+    // Step 1: Automatically archive / snapshot current status and file BEFORE modifying
+    $snapInfo = create_plan_snapshot($pdo, $planId, 'ก่อนบันทึกการแก้ไข / ส่งฉบับปรับปรุง');
+
     $tName = trim($_POST['teacher_name'] ?? $existing['teacher_name']);
     $tDept = trim($_POST['teacher_department'] ?? $existing['teacher_department']);
     $sCode = strtoupper(trim($_POST['subject_code'] ?? $existing['subject_code']));
@@ -605,7 +794,7 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
         move_uploaded_file($file['tmp_name'], $destPath);
         $localFilePath = 'data/uploads/' . $uniqueFileName;
 
-        // Delete old files if replacing
+        // Old local file is safely preserved in snapshot (plan_backup_v...)
         $oldLocal = $existing['local_file_path'];
         $oldStamped = $existing['stamped_file_path'] ?? null;
         $oldDriveId = $existing['google_drive_file_id'];
@@ -671,10 +860,37 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
 
     json_resp([
         'success' => true,
-        'message' => 'อัปเดตและส่งแผนการสอนฉบับปรับปรุงเรียบร้อยแล้ว',
+        'message' => 'บันทึกประวัติเวอร์ชันเดิมเรียบร้อย และอัปเดตแผนการสอนฉบับปรับปรุงแล้ว',
         'planId' => $planId,
+        'versionNumber' => ($snapInfo ? $snapInfo['versionNumber'] + 1 : 2),
         'driveViewLink' => $driveViewLink
     ]);
+}
+
+// 9.1b POST /api/plans/:id/snapshot (Create Version Snapshot Before Editing)
+if ($method === 'POST' && preg_match('#^/plans/([^/]+)/snapshot$#', $path, $matches)) {
+    $planId = $matches[1];
+    $b = get_json_body();
+    $reason = trim($_POST['reason'] ?? $b['reason'] ?? 'ก่อนเริ่มแก้ไขแผนการสอน');
+    $snap = create_plan_snapshot($pdo, $planId, $reason);
+    if (!$snap) {
+        json_resp(['success' => false, 'message' => 'ไม่พบข้อมูลแผนการสอนที่ต้องการบันทึกประวัติ'], 404);
+    }
+    json_resp([
+        'success' => true,
+        'message' => "บันทึกสำรองประวัติเวอร์ชัน {$snap['versionNumber']} เรียบร้อยแล้ว",
+        'data' => $snap
+    ]);
+}
+
+// 9.1c GET /api/plans/:id/versions (List Version History)
+if ($method === 'GET' && preg_match('#^/plans/([^/]+)/versions$#', $path, $matches)) {
+    $planId = $matches[1];
+    ensure_plan_versions_table($pdo);
+    $stmt = $pdo->prepare("SELECT * FROM lesson_plan_versions WHERE lesson_plan_id = ? ORDER BY version_number DESC");
+    $stmt->execute([$planId]);
+    $list = $stmt->fetchAll();
+    json_resp(['success' => true, 'data' => $list]);
 }
 
 // 9.2 DELETE /api/plans/:id or /api/admin/plans/:id (Delete Plan from DB, local disk, and Google Drive)
@@ -838,6 +1054,8 @@ if ($method === 'POST' && preg_match('#^/plans/([^/]+)/submit-round-2$#', $path,
     $pStmt->execute([$planId]);
     $p = $pStmt->fetch();
 
+    $driveViewLink = $p['google_drive_view_link'] ?? null;
+
     if (isset($_FILES['pdf_file']) && $_FILES['pdf_file']['error'] === UPLOAD_ERR_OK) {
         $file = $_FILES['pdf_file'];
         $uploadDir = __DIR__ . '/../../data/uploads';
@@ -869,6 +1087,7 @@ if ($method === 'POST' && preg_match('#^/plans/([^/]+)/submit-round-2$#', $path,
             if ($driveRes && !empty($driveRes['fileId'])) {
                 $upd = $pdo->prepare("UPDATE lesson_plans SET local_file_path = ?, stamped_file_path = ?, google_drive_file_id = ?, google_drive_view_link = ?, google_drive_download_link = ? WHERE id = ?");
                 $upd->execute([$newLocalPath, $newLocalPath, $driveRes['fileId'], $driveRes['webViewLink'], $driveRes['downloadLink'], $planId]);
+                $driveViewLink = $driveRes['webViewLink'];
                 if (!empty($oldDriveIdR2) && $oldDriveIdR2 !== $driveRes['fileId']) {
                     deleteGoogleDriveFile($oldDriveIdR2);
                 }
@@ -883,7 +1102,11 @@ if ($method === 'POST' && preg_match('#^/plans/([^/]+)/submit-round-2$#', $path,
     }
 
     init_approval_timeline($pdo, $planId, $p['teacher_name'] ?? 'ครูผู้สอน', 'dept_head', 'submitted', 2);
-    json_resp(['success' => true, 'message' => 'บันทึกการส่งและลงนามครั้งที่ 2 สำเร็จ']);
+    json_resp([
+        'success' => true,
+        'message' => 'บันทึกการส่งและลงนามครั้งที่ 2 สำเร็จ',
+        'driveViewLink' => $driveViewLink
+    ]);
 }
 
 // 14. GET /api/admin/plans (Reviewer Dashboard List)

@@ -136,6 +136,42 @@ CREATE TABLE IF NOT EXISTS `job_tasks` (
   KEY `idx_task_plan` (`lesson_plan_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------
+-- 7. ตาราง lesson_plan_versions: ประวัติและสำรองเวอร์ชันก่อนการแก้ไข
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `lesson_plan_versions` (
+  `id` VARCHAR(64) NOT NULL,
+  `lesson_plan_id` VARCHAR(64) NOT NULL,
+  `version_number` INT NOT NULL DEFAULT 1,
+  `teacher_name` VARCHAR(255) DEFAULT NULL,
+  `teacher_email` VARCHAR(255) DEFAULT NULL,
+  `teacher_department` VARCHAR(255) DEFAULT NULL,
+  `academic_term_id` VARCHAR(64) DEFAULT NULL,
+  `subject_code` VARCHAR(64) DEFAULT NULL,
+  `subject_name` VARCHAR(255) DEFAULT NULL,
+  `grade_level` VARCHAR(64) DEFAULT NULL,
+  `submission_status` VARCHAR(64) DEFAULT 'submitted',
+  `current_stage` VARCHAR(64) DEFAULT 'dept_head',
+  `current_reviewer_title` VARCHAR(255) DEFAULT NULL,
+  `reviewer_feedback` TEXT DEFAULT NULL,
+  `file_original_name` VARCHAR(255) DEFAULT NULL,
+  `file_size` BIGINT DEFAULT NULL,
+  `local_file_path` TEXT DEFAULT NULL,
+  `stamped_file_path` TEXT DEFAULT NULL,
+  `google_drive_file_id` VARCHAR(255) DEFAULT NULL,
+  `google_drive_view_link` TEXT DEFAULT NULL,
+  `google_drive_download_link` TEXT DEFAULT NULL,
+  `signature_data` LONGTEXT DEFAULT NULL,
+  `submission_round` INT DEFAULT 1,
+  `current_round` INT DEFAULT 1,
+  `round_2_status` VARCHAR(64) DEFAULT 'not_started',
+  `snapshot_reason` VARCHAR(255) DEFAULT 'ก่อนแก้ไขแผนการสอน',
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_plan_version` (`lesson_plan_id`),
+  KEY `idx_version_num` (`version_number`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- =====================================================================
 -- ข้อมูลเริ่มต้น (Clean Initial Data)
 -- =====================================================================
