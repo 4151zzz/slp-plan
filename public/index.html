@@ -934,9 +934,12 @@
           </div>
         </div>
       </div>
-      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; flex-wrap: wrap; gap: 8px;">
         <button type="button" class="btn btn-outline" onclick="closeUserProfileModal()">ปิดหน้าต่าง</button>
-        <div style="display: flex; gap: 8px;">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline" onclick="openChangePinModal()" style="border-color: #2563eb; color: #2563eb; font-weight: 600;">
+            <i class="fa-solid fa-key"></i> เปลี่ยนรหัส PIN
+          </button>
           <a href="admin.html" id="profileModalAdminLink" class="btn btn-outline" style="display: none;">
             <i class="fa-solid fa-sliders"></i> แอดมิน
           </a>

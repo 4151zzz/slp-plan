@@ -537,6 +537,8 @@
       flex-direction: column;
       justify-content: space-between;
       transition: all 0.2s ease;
+      min-width: 0;
+      word-break: break-word;
     }
 
     .tool-card:hover {
@@ -576,6 +578,7 @@
       color: #7c3aed;
     }
 
+    /* Print Styles */
     @media print {
       body {
         background: #ffffff !important;
@@ -600,10 +603,318 @@
       #adminSectionStats {
         display: block !important;
       }
+    }
 
-      .swal2-container {
-        z-index: 999999 !important;
+    /* Modal Dialog & Edit User Card Responsive Architecture */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(5px);
+      z-index: 99999;
+      padding: 1.5rem 1rem;
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch;
+      display: none;
+      align-items: flex-start !important;
+      justify-content: center !important;
+    }
+
+    .modal-backdrop.active {
+      display: flex !important;
+    }
+
+    .modal-dialog {
+      background: #ffffff;
+      border-radius: 16px;
+      max-width: 540px;
+      width: 100%;
+      max-height: calc(100vh - 3rem) !important;
+      height: auto;
+      display: flex !important;
+      flex-direction: column !important;
+      overflow: hidden !important;
+      margin: auto !important;
+      padding: 0 !important;
+      box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      position: relative;
+    }
+
+    /* Strict Flexbox for Form to allow proper body scrolling */
+    .modal-dialog form {
+      display: flex !important;
+      flex-direction: column !important;
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow: hidden !important;
+      margin: 0;
+    }
+
+    .modal-header {
+      flex: 0 0 auto !important;
+      padding: 1.15rem 1.4rem;
+      border-bottom: 1px solid #e2e8f0;
+      background: #ffffff;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-body {
+      flex: 1 1 auto !important;
+      min-height: 0 !important;
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+      padding: 1.25rem 1.4rem;
+      scrollbar-width: thin;
+      overscroll-behavior: contain;
+    }
+
+    .modal-body::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .modal-body::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+
+    .modal-footer {
+      flex: 0 0 auto !important;
+      padding: 0.9rem 1.4rem;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-footer .btn {
+      min-width: 100px;
+    }
+
+    .form-row-2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    @media (max-width: 480px) {
+      .form-row-2col {
+        grid-template-columns: 1fr;
+        gap: 8px;
       }
+    }
+
+    /* SweetAlert2 Global Depth & Responsive */
+    .swal2-container {
+      z-index: 999999 !important;
+    }
+
+    .swal2-popup {
+      max-width: 95vw !important;
+      border-radius: 16px !important;
+    }
+
+    /* Mobile Table Hint */
+    .mobile-table-hint {
+      display: none;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d4ed8;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      margin-bottom: 10px;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Scrollable Admin Navigation Bar */
+    .admin-nav-bar {
+      display: flex;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      gap: 8px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 6px;
+      scrollbar-width: thin;
+    }
+
+    .admin-nav-bar::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    .admin-nav-bar::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+
+    .admin-tab-btn {
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* Table Scrollbar & Minimum Width */
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: var(--radius-md);
+      border: 1px solid #e2e8f0;
+      margin-top: 10px;
+    }
+
+    .table-responsive::-webkit-scrollbar {
+      height: 6px;
+    }
+
+    .table-responsive::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+
+    .table-responsive::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border-radius: 4px;
+    }
+
+    #usersTable,
+    #departmentsTable,
+    .app-table,
+    .data-table {
+      min-width: 720px;
+    }
+
+    /* Responsive Styles for Mobile and Tablet */
+    @media (max-width: 768px) {
+      .tools-grid {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      .tool-card {
+        padding: 1.25rem 1rem;
+      }
+
+      .mobile-table-hint {
+        display: flex;
+      }
+
+      .navbar-top-row {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 12px !important;
+      }
+
+      .admin-header-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        width: 100%;
+      }
+
+      .admin-header-actions .btn {
+        flex: 1 1 auto;
+        text-align: center;
+        justify-content: center;
+        padding: 8px 12px !important;
+        font-size: 0.85rem !important;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .main-wrapper {
+        padding: 0.75rem 0.5rem !important;
+      }
+
+      .app-card {
+        padding: 1.15rem 0.85rem !important;
+        border-radius: 12px !important;
+      }
+
+      .hero-banner {
+        padding: 1.25rem 1rem !important;
+        border-radius: 12px !important;
+      }
+
+      .hero-title {
+        font-size: 1.35rem !important;
+      }
+
+      .filter-bar {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+      }
+
+      .filter-bar .form-input,
+      .filter-bar .form-select,
+      .filter-bar .btn {
+        width: 100% !important;
+        min-width: 0 !important;
+      }
+
+      .modal-backdrop {
+        padding: 0.5rem !important;
+      }
+
+      .modal-dialog {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: calc(100vh - 1rem) !important;
+        margin: auto !important;
+        padding: 0 !important;
+        border-radius: 14px !important;
+      }
+
+      .modal-header {
+        padding: 0.85rem 1rem !important;
+      }
+
+      .modal-body {
+        padding: 1rem 0.9rem !important;
+      }
+
+      .modal-footer {
+        padding: 0.75rem 1rem !important;
+      }
+
+      .modal-footer .btn {
+        flex: 1 1 auto;
+        padding: 8px 14px !important;
+      }
+
+      .form-row {
+        flex-direction: column !important;
+        gap: 8px !important;
+      }
+    }
+
+    @media (max-height: 700px) {
+      .modal-dialog {
+        max-height: calc(100vh - 1rem) !important;
+      }
+
+      .modal-header {
+        padding: 0.75rem 1.15rem !important;
+      }
+
+      .modal-body {
+        padding: 0.85rem 1.15rem !important;
+      }
+
+      .modal-footer {
+        padding: 0.65rem 1.15rem !important;
+      }
+
+      .form-group {
+        margin-bottom: 0.75rem !important;
+      }
+    }
   </style>
 </head>
 
@@ -624,11 +935,16 @@
       </a>
 
       <!-- Quick Nav Action Links -->
-      <div style="display: flex; align-items: center; gap: 10px;">
+      <div class="admin-header-actions" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <a href="index.html" class="btn btn-sm btn-outline"
           style="background: rgba(255,255,255,0.2); color: #ffffff; border-color: rgba(255,255,255,0.3); border-radius: var(--radius-full); padding: 6px 16px;">
           <i class="fa-solid fa-graduation-cap"></i> ระบบส่ง/ตรวจแผน
         </a>
+        <button type="button" class="btn btn-sm btn-outline"
+          style="background: rgba(255,255,255,0.2); color: #ffffff; border-color: rgba(255,255,255,0.3); border-radius: var(--radius-full); padding: 6px 14px;"
+          onclick="openChangePinModalAdmin()" title="เปลี่ยนรหัส PIN ส่วนตัว">
+          <i class="fa-solid fa-key"></i> เปลี่ยนรหัส PIN
+        </button>
         <button type="button" class="btn btn-sm btn-outline"
           style="background: rgba(255,255,255,0.2); color: #ffffff; border-color: rgba(255,255,255,0.3); border-radius: var(--radius-full); padding: 6px 14px;"
           onclick="handleLogout()">
@@ -689,7 +1005,8 @@
     <div class="admin-nav-bar">
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <button type="button" class="admin-tab-btn" id="tabPlansBtn" onclick="switchAdminTab('plans')">
-          <i class="fa-solid fa-file-signature" style="color: #2563eb;"></i> แผนการสอนทั้งหมด (<span id="adminPlansCountBadge">0</span>)
+          <i class="fa-solid fa-file-signature" style="color: #2563eb;"></i> แผนการสอนทั้งหมด (<span
+            id="adminPlansCountBadge">0</span>)
         </button>
         <button type="button" class="admin-tab-btn active" id="tabUsersBtn" onclick="switchAdminTab('users')">
           <i class="fa-solid fa-users-gear"></i> จัดการผู้ใช้ & บุคลากร
@@ -756,6 +1073,9 @@
         </button>
       </div>
 
+      <div class="mobile-table-hint">
+        <i class="fa-solid fa-arrows-left-right"></i> เลื่อนตารางไปทางขวาเพื่อดูรหัส PIN และปุ่มจัดการ
+      </div>
       <div class="table-responsive">
         <table class="app-table" id="usersTable">
           <thead>
@@ -793,7 +1113,7 @@
             เปิดหรือปิดรับแผนการสอนรายภาคเรียน ครูจะส่งแผนได้เฉพาะภาคเรียนที่เปิด (Active) เท่านั้น
           </div>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
           <input type="text" id="termSearchInput" class="form-input" placeholder="🔍 ค้นหาภาคเรียน..."
             onkeyup="filterTermsTable()" style="width: 200px; padding: 6px 12px; font-size: 0.85rem;">
           <button type="button" class="btn btn-primary btn-sm"
@@ -883,7 +1203,7 @@
             และเพิ่มหมวดวิชาใหม่ได้ตลอดเวลา
           </div>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
           <input type="text" id="deptSearchInput" class="form-input" placeholder="🔍 ค้นหากลุ่มสาระฯ หรือผู้ตรวจ..."
             onkeyup="filterDepartmentsTable()" style="width: 220px; padding: 6px 12px; font-size: 0.85rem;">
           <button type="button" class="btn btn-primary" style="border-radius: var(--radius-full); padding: 8px 20px;"
@@ -893,6 +1213,9 @@
         </div>
       </div>
 
+      <div class="mobile-table-hint">
+        <i class="fa-solid fa-arrows-left-right"></i> เลื่อนตารางไปทางขวาเพื่อดูรหัส PIN ผู้ตรวจประจำหมวด และปุ่มจัดการ
+      </div>
       <div class="table-responsive">
         <table class="app-table" id="departmentsTable">
           <thead>
@@ -1071,13 +1394,17 @@
          SECTION 7: ALL LESSON PLANS & EASY DELETION
          ========================================================= -->
     <section id="adminSectionPlans" class="app-card" style="display: none;">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 12px;">
+      <div
+        style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 12px;">
         <div>
-          <h2 style="font-size: 1.15rem; font-weight: 700; color: #1e3a8a; margin: 0; display: flex; align-items: center; gap: 8px;">
-            <i class="fa-solid fa-file-signature" style="color: #2563eb; font-size: 1.25rem;"></i> แผนการสอนทั้งหมดในระบบ
+          <h2
+            style="font-size: 1.15rem; font-weight: 700; color: #1e3a8a; margin: 0; display: flex; align-items: center; gap: 8px;">
+            <i class="fa-solid fa-file-signature" style="color: #2563eb; font-size: 1.25rem;"></i>
+            แผนการสอนทั้งหมดในระบบ
           </h2>
           <div style="font-size: 0.85rem; color: #64748b; margin-top: 4px;">
-            ตรวจสอบรายชื่อครูผู้สอนที่ส่งแผนทั้งหมด และสามารถลบแผนการสอนออกจากฐานข้อมูลพร้อมลบไฟล์บน Google Drive ได้ทันที
+            ตรวจสอบรายชื่อครูผู้สอนที่ส่งแผนทั้งหมด และสามารถลบแผนการสอนออกจากฐานข้อมูลพร้อมลบไฟล์บน Google Drive
+            ได้ทันที
           </div>
         </div>
         <button type="button" class="btn btn-outline btn-sm" onclick="loadAllAdminPlansTable()"
@@ -1087,7 +1414,8 @@
       </div>
 
       <!-- Quick KPI Counters -->
-      <div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 1.5rem;">
+      <div class="stat-grid"
+        style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 1.5rem;">
         <div class="stat-card blue">
           <div class="stat-label">ส่งแผนทั้งหมด</div>
           <div class="stat-value" id="planStatTotal">0</div>
@@ -1112,18 +1440,22 @@
 
       <!-- Filter Bar -->
       <div class="filter-bar" style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 1rem;">
-        <input type="text" id="adminPlanSearchInput" class="form-input" placeholder="🔍 ค้นหาชื่อครู, อีเมล, รหัสวิชา, ชื่อวิชา..."
-          onkeyup="filterAdminPlansTable()" style="flex: 2; min-width: 220px;">
+        <input type="text" id="adminPlanSearchInput" class="form-input"
+          placeholder="🔍 ค้นหาชื่อครู, อีเมล, รหัสวิชา, ชื่อวิชา..." onkeyup="filterAdminPlansTable()"
+          style="flex: 2; min-width: 220px;">
 
-        <select id="adminPlanDeptFilter" class="form-select" onchange="filterAdminPlansTable()" style="flex: 1.2; min-width: 170px;">
+        <select id="adminPlanDeptFilter" class="form-select" onchange="filterAdminPlansTable()"
+          style="flex: 1.2; min-width: 170px;">
           <option value="">ทุกกลุ่มสาระการเรียนรู้</option>
         </select>
 
-        <select id="adminPlanTermFilter" class="form-select" onchange="filterAdminPlansTable()" style="flex: 1; min-width: 140px;">
+        <select id="adminPlanTermFilter" class="form-select" onchange="filterAdminPlansTable()"
+          style="flex: 1; min-width: 140px;">
           <option value="">ทุกภาคเรียน</option>
         </select>
 
-        <select id="adminPlanStatusFilter" class="form-select" onchange="filterAdminPlansTable()" style="flex: 1; min-width: 140px;">
+        <select id="adminPlanStatusFilter" class="form-select" onchange="filterAdminPlansTable()"
+          style="flex: 1; min-width: 140px;">
           <option value="">ทุกสถานะ</option>
           <option value="approved">อนุมัติเรียบร้อย</option>
           <option value="pending">อยู่ระหว่างตรวจ</option>
@@ -1132,6 +1464,9 @@
       </div>
 
       <!-- Plans Table -->
+      <div class="mobile-table-hint">
+        <i class="fa-solid fa-arrows-left-right"></i> เลื่อนตารางไปทางขวาเพื่อดูเอกสาร/Drive และปุ่มจัดการ
+      </div>
       <div class="table-responsive" style="border: 1px solid #e2e8f0; border-radius: 12px; overflow-x: auto;">
         <table class="data-table" style="width: 100%; border-collapse: collapse;">
           <thead>
@@ -1224,19 +1559,21 @@
             </select>
           </div>
 
-          <div class="form-group">
-            <label class="form-label" for="formUserPosition">ตำแหน่งทางราชการ</label>
-            <input type="text" id="formUserPosition" class="form-input"
-              placeholder="เช่น ครูชำนาญการ, หัวหน้ากลุ่มสาระฯ">
-          </div>
+          <div class="form-row-2col">
+            <div class="form-group">
+              <label class="form-label" for="formUserPosition">ตำแหน่งทางราชการ</label>
+              <input type="text" id="formUserPosition" class="form-input"
+                placeholder="เช่น ครูชำนาญการ, หัวหน้ากลุ่มสาระฯ">
+            </div>
 
-          <div class="form-group">
-            <label class="form-label" for="formUserPin">
-              <span>รหัสความปลอดภัย PIN (4 หลัก)</span>
-              <span style="font-size: 0.78rem; color: #64748b; font-weight: normal;">(ใช้สำหรับผู้ตรวจอนุมัติ)</span>
-            </label>
-            <input type="password" id="formUserPin" class="form-input" maxlength="4" placeholder="1234" value="1234"
-              style="letter-spacing: 0.2rem;">
+            <div class="form-group">
+              <label class="form-label" for="formUserPin">
+                <span>รหัสความปลอดภัย PIN</span>
+                <span style="font-size: 0.75rem; color: #64748b; font-weight: normal;">(4 หลักขึ้นไป)</span>
+              </label>
+              <input type="password" id="formUserPin" class="form-input" maxlength="16"
+                placeholder="กำหนดรหัส PIN" style="letter-spacing: 0.2rem;">
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -1287,22 +1624,21 @@
               required>
           </div>
 
-          <div class="form-group">
-            <label class="form-label" for="formDeptHeadEmail">อีเมลโรงเรียนของหัวหน้าหมวด (School Gmail) <span
-                class="required">*</span></label>
-            <input type="email" id="formDeptHeadEmail" class="form-input" placeholder="head.thai@school.ac.th" required>
-            <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">*
-              ใช้อีเมลนี้ในการเข้าสู่ระบบตรวจแผนการสอนประจำกลุ่มสาระฯ</div>
-          </div>
+          <div class="form-row-2col">
+            <div class="form-group">
+              <label class="form-label" for="formDeptHeadEmail">อีเมลโรงเรียน (School Gmail) <span
+                  class="required">*</span></label>
+              <input type="email" id="formDeptHeadEmail" class="form-input" placeholder="head.thai@school.ac.th" required>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label" for="formDeptHeadPin">
-              <span>รหัส PIN ผู้ตรวจ (4 หลัก)</span>
-              <span
-                style="font-size: 0.78rem; color: #64748b; font-weight: normal;">(ใช้เพื่อความปลอดภัยในการเข้าตรวจ)</span>
-            </label>
-            <input type="password" id="formDeptHeadPin" class="form-input" maxlength="4" placeholder="1234" value="1234"
-              required style="letter-spacing: 0.2rem;">
+            <div class="form-group">
+              <label class="form-label" for="formDeptHeadPin">
+                <span>รหัส PIN ผู้ตรวจ</span>
+                <span style="font-size: 0.75rem; color: #64748b; font-weight: normal;">(4 หลักขึ้นไป)</span>
+              </label>
+              <input type="password" id="formDeptHeadPin" class="form-input" maxlength="16"
+                placeholder="กำหนดรหัส PIN" required style="letter-spacing: 0.2rem;">
+            </div>
           </div>
 
           <div class="form-group">
@@ -2002,7 +2338,7 @@
           statusBadge = '<span class="badge badge-submitted" style="font-size: 0.78rem; padding: 4px 10px;"><i class="fa-solid fa-clock"></i> อยู่ระหว่างตรวจ</span>';
         }
 
-        let driveBtn = '<span style="color: #94a3b8; font-size: 0.8rem;">-</span>';
+        let driveBtn = `<button type="button" class="btn btn-sm" onclick="syncSinglePlanDriveAdmin('${p.id}')" style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; border-radius: 999px; font-weight: 600; padding: 3px 8px; font-size: 0.74rem; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="กดเพื่ออัปโหลดและซิงค์ไฟล์นี้ขึ้น Google Drive ใหม่"><i class="fa-solid fa-arrows-rotate"></i> ซิงค์ขึ้นไดรฟ์</button>`;
         if (p.google_drive_view_link) {
           driveBtn = `<a href="${p.google_drive_view_link}" target="_blank" class="btn btn-sm" style="background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 999px; font-weight: 600; padding: 4px 10px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; text-decoration: none;" title="เปิดดูไฟล์บน Google Drive"><i class="fa-brands fa-google-drive"></i> ดูบนไดรฟ์</a>`;
         }
@@ -2035,13 +2371,13 @@
                   <i class="fa-solid fa-file-pdf" style="color: #ef4444;"></i> ดู PDF
                 </a>
                 ${driveBtn}
-                <button type="button" class="btn btn-sm btn-outline" onclick="viewPlanVersions('${p.id}', '${escapeHtml(p.subject_code)}')" style="border-radius: 999px; padding: 4px 8px; font-size: 0.78rem; color: #475569;" title="ดูประวัติการแก้ไขและเวอร์ชัน">
+                <button type="button" class="btn btn-sm btn-outline" onclick="viewPlanVersions('${p.id}')" style="border-radius: 999px; padding: 4px 8px; font-size: 0.78rem; color: #475569;" title="ดูประวัติการแก้ไขและเวอร์ชัน">
                   <i class="fa-solid fa-clock-rotate-left"></i> ประวัติ
                 </button>
               </div>
             </td>
             <td style="padding: 12px; text-align: center;">
-              <button type="button" class="btn btn-sm" onclick="confirmDeletePlanAdmin('${p.id}', '${escapeHtml(p.teacher_name)}', '${escapeHtml(p.subject_code)}')"
+              <button type="button" class="btn btn-sm" onclick="confirmDeletePlanAdmin('${p.id}')"
                 style="background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; border-radius: 8px; padding: 6px 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;"
                 title="ลบแผนการสอนออกจากฐานข้อมูลและ Google Drive">
                 <i class="fa-solid fa-trash-can"></i> ลบ
@@ -2054,7 +2390,24 @@
       tbody.innerHTML = html;
     }
 
+    function getStatusLabel(status) {
+      const map = {
+        submitted: 'ส่งแล้ว',
+        under_review: 'อยู่ระหว่างตรวจ',
+        revision_needed: 'ส่งกลับแก้ไข',
+        approved: 'อนุมัติเรียบร้อย',
+        draft: 'ฉบับร่าง',
+        not_started: 'ยังไม่เริ่ม'
+      };
+      return map[status] || status || '-';
+    }
+
     async function viewPlanVersions(planId, subjectCode) {
+      if (!subjectCode) {
+        const found = (allAdminPlansData || []).find(x => x.id === planId);
+        subjectCode = found ? found.subject_code : (planId || '');
+      }
+
       try {
         const res = await fetch(`/api/plans/${planId}/versions`);
         const json = await res.json();
@@ -2099,7 +2452,8 @@
     function formatAdminDate(dateStr) {
       if (!dateStr) return '-';
       try {
-        const d = new Date(dateStr);
+        const cleanStr = String(dateStr).replace(' ', 'T');
+        const d = new Date(cleanStr);
         if (isNaN(d.getTime())) return dateStr;
         const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
         const day = d.getDate();
@@ -2114,6 +2468,15 @@
     }
 
     async function confirmDeletePlanAdmin(planId, teacherName, subjectCode) {
+      if (!teacherName || !subjectCode) {
+        const found = (allAdminPlansData || []).find(x => x.id === planId);
+        if (found) {
+          teacherName = teacherName || found.teacher_name;
+          subjectCode = subjectCode || found.subject_code;
+        }
+      }
+      teacherName = teacherName || 'ครูผู้สอน';
+      subjectCode = subjectCode || 'แผนการสอน';
       const result = await Swal.fire({
         title: 'ยืนยันการลบแผนการสอน?',
         html: `คุณต้องการลบแผนการสอนวิชา <strong>${escapeHtml(subjectCode)}</strong> ของ <strong>${escapeHtml(teacherName)}</strong> ใช่หรือไม่?<br><br><span style="font-size: 0.88rem; color: #dc2626; background: #fef2f2; padding: 8px 12px; border-radius: 6px; display: inline-block; border: 1px solid #fecaca;"><i class="fa-solid fa-triangle-exclamation"></i> ระบบจะลบข้อมูลออกจากฐานข้อมูล และลบไฟล์ PDF บน Google Drive ออกให้อัตโนมัติ</span>`,
@@ -2158,6 +2521,42 @@
         Swal.fire({
           icon: 'error',
           title: 'เกิดข้อผิดพลาด',
+          text: err.message
+        });
+      }
+    }
+
+    async function syncSinglePlanDriveAdmin(planId) {
+      Swal.fire({
+        title: 'กำลังซิงค์ไฟล์ขึ้น Google Drive...',
+        html: 'กำลังเชื่อมต่อและอัปโหลดไฟล์ PDF ขึ้นโฟลเดอร์ Google Drive<br>กรุณารอสักครู่...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      try {
+        const res = await fetch(`/api/plans/${planId}/sync-drive`, { method: 'POST' });
+        const json = await res.json();
+        if (json.success) {
+          await Swal.fire({
+            icon: 'success',
+            title: 'ซิงค์สำเร็จ!',
+            text: 'อัปโหลดไฟล์ขึ้น Google Drive เรียบร้อยแล้ว',
+            timer: 1800,
+            showConfirmButton: false
+          });
+          await loadAllAdminPlansTable();
+        } else {
+          Swal.fire({
+            icon: 'error',
+            title: 'ไม่สามารถซิงค์ได้',
+            text: json.message || 'เกิดข้อผิดพลาดในการอัปโหลดขึ้น Google Drive'
+          });
+        }
+      } catch (err) {
+        Swal.fire({
+          icon: 'error',
+          title: 'การเชื่อมต่อผิดพลาด',
           text: err.message
         });
       }
@@ -2493,21 +2892,26 @@
 
     async function quickResetUserPin(userId, userName) {
       const { value: newPin, isConfirmed } = await Swal.fire({
-        title: 'รีเซ็ตรหัส PIN',
-        html: `คุณต้องการรีเซ็ตรหัส PIN ของ <strong>${escapeHtml(userName)}</strong> หรือไม่?<br><span style="font-size: 0.85rem; color: #64748b;">(ระบุรหัสตัวเลข 4 หลัก หรือปล่อยเป็น 1234)</span>`,
+        title: 'กำหนดรหัส PIN ใหม่',
+        html: `กำหนดรหัส PIN ใหม่สำหรับ: <strong>${escapeHtml(userName)}</strong><br><span style="font-size: 0.85rem; color: #64748b;">(ระบุรหัสตัวเลขหรือตัวอักษร 4 หลักขึ้นไป)</span>`,
         input: 'password',
-        inputValue: '1234',
+        inputValue: '',
         inputAttributes: {
-          maxlength: '4',
+          maxlength: '16',
           inputmode: 'numeric',
+          placeholder: '• • • •',
           style: 'text-align: center; letter-spacing: 0.3rem; font-size: 1.5rem;'
         },
         icon: 'question',
         showCancelButton: true,
         confirmButtonColor: '#2563eb',
         cancelButtonColor: '#64748b',
-        confirmButtonText: 'ยืนยันรีเซ็ต PIN',
-        cancelButtonText: 'ยกเลิก'
+        confirmButtonText: 'ยืนยันบันทึก PIN',
+        cancelButtonText: 'ยกเลิก',
+        inputValidator: (val) => {
+          if (!val || !val.trim()) return 'กรุณาระบุรหัส PIN';
+          if (val.trim().length < 4) return 'รหัส PIN ต้องมีอย่างน้อย 4 หลัก';
+        }
       });
 
       if (isConfirmed && newPin) {
@@ -2515,14 +2919,14 @@
           const res = await fetch(`/api/admin/users/${userId}/reset-pin`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pin: newPin })
+            body: JSON.stringify({ pin: newPin.trim() })
           });
           const json = await res.json();
           if (json.success) {
             Swal.fire({
               icon: 'success',
               title: 'สำเร็จ!',
-              text: json.message || 'รีเซ็ตรหัส PIN เรียบร้อยแล้ว',
+              text: json.message || 'บันทึกรหัส PIN ใหม่เรียบร้อยแล้ว',
               confirmButtonColor: '#2563eb'
             });
             await loadUsers();
@@ -2537,21 +2941,26 @@
 
     async function quickResetDeptPin(deptId, deptName) {
       const { value: newPin, isConfirmed } = await Swal.fire({
-        title: 'รีเซ็ตรหัส PIN ผู้ตรวจ',
-        html: `คุณต้องการรีเซ็ตรหัส PIN หัวหน้ากลุ่มสาระฯ <strong>${escapeHtml(deptName)}</strong> หรือไม่?<br><span style="font-size: 0.85rem; color: #64748b;">(ระบุรหัสตัวเลข 4 หลัก หรือปล่อยเป็น 1234)</span>`,
+        title: 'กำหนดรหัส PIN ผู้ตรวจ',
+        html: `กำหนดรหัส PIN สำหรับหัวหน้ากลุ่มสาระฯ: <strong>${escapeHtml(deptName)}</strong><br><span style="font-size: 0.85rem; color: #64748b;">(ระบุรหัส 4 หลักขึ้นไป)</span>`,
         input: 'password',
-        inputValue: '1234',
+        inputValue: '',
         inputAttributes: {
-          maxlength: '4',
+          maxlength: '16',
           inputmode: 'numeric',
+          placeholder: '• • • •',
           style: 'text-align: center; letter-spacing: 0.3rem; font-size: 1.5rem;'
         },
         icon: 'question',
         showCancelButton: true,
         confirmButtonColor: '#2563eb',
         cancelButtonColor: '#64748b',
-        confirmButtonText: 'ยืนยันรีเซ็ต PIN',
-        cancelButtonText: 'ยกเลิก'
+        confirmButtonText: 'ยืนยันบันทึก PIN',
+        cancelButtonText: 'ยกเลิก',
+        inputValidator: (val) => {
+          if (!val || !val.trim()) return 'กรุณาระบุรหัส PIN';
+          if (val.trim().length < 4) return 'รหัส PIN ต้องมีอย่างน้อย 4 หลัก';
+        }
       });
 
       if (isConfirmed && newPin) {
@@ -2559,23 +2968,112 @@
           const res = await fetch(`/api/departments/${deptId}/reset-pin`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pin: newPin })
+            body: JSON.stringify({ pin: newPin.trim() })
           });
           const json = await res.json();
           if (json.success) {
             Swal.fire({
               icon: 'success',
               title: 'สำเร็จ!',
-              text: json.message || 'รีเซ็ตรหัส PIN เรียบร้อยแล้ว',
+              text: json.message || 'บันทึกรหัส PIN ผู้ตรวจเรียบร้อยแล้ว',
               confirmButtonColor: '#2563eb'
             });
             await loadDepartments();
-            await loadUsers();
           } else {
             Swal.fire({ icon: 'error', title: 'ผิดพลาด', text: json.message });
           }
         } catch (err) {
           Swal.fire({ icon: 'error', title: 'ข้อผิดพลาดเครือข่าย', text: err.message });
+        }
+      }
+    }
+
+    async function openChangePinModalAdmin() {
+      const userStr = localStorage.getItem('activeUser');
+      if (!userStr) return;
+      const user = JSON.parse(userStr);
+
+      const { value: formValues } = await Swal.fire({
+        title: '<i class="fa-solid fa-key" style="color: #2563eb;"></i> เปลี่ยนรหัส PIN ผู้ดูแลระบบ',
+        html: `
+          <div style="text-align: left; font-size: 0.88rem; color: #334155; margin-bottom: 12px; background: #f8fafc; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+            บัญชี: <strong>${escapeHtml(user.name)}</strong> (${escapeHtml(user.email)})
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px; text-align: left;">
+            <div>
+              <label style="font-size: 0.82rem; font-weight: 600; color: #475569;">รหัส PIN ปัจจุบัน:</label>
+              <input type="password" id="swalOldPinAdmin" class="swal2-input" placeholder="ระบุ PIN เดิม" style="margin: 4px 0 0; width: 100%; font-size: 1rem; box-sizing: border-box;" maxlength="16">
+            </div>
+            <div>
+              <label style="font-size: 0.82rem; font-weight: 600; color: #475569;">รหัส PIN ใหม่ (4-16 หลัก):</label>
+              <input type="password" id="swalNewPinAdmin" class="swal2-input" placeholder="ระบุ PIN ใหม่ที่ต้องการตั้ง" style="margin: 4px 0 0; width: 100%; font-size: 1rem; box-sizing: border-box;" maxlength="16">
+            </div>
+            <div>
+              <label style="font-size: 0.82rem; font-weight: 600; color: #475569;">ยืนยันรหัส PIN ใหม่อีกครั้ง:</label>
+              <input type="password" id="swalConfirmPinAdmin" class="swal2-input" placeholder="ระบุ PIN ใหม่อีกครั้งเพื่อยืนยัน" style="margin: 4px 0 0; width: 100%; font-size: 1rem; box-sizing: border-box;" maxlength="16">
+            </div>
+          </div>
+        `,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-save"></i> บันทึกรหัส PIN ใหม่',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#2563eb',
+        preConfirm: () => {
+          const oldPin = document.getElementById('swalOldPinAdmin').value.trim();
+          const newPin = document.getElementById('swalNewPinAdmin').value.trim();
+          const confirmPin = document.getElementById('swalConfirmPinAdmin').value.trim();
+
+          if (!oldPin) {
+            Swal.showValidationMessage('กรุณากรอกรหัส PIN ปัจจุบัน');
+            return false;
+          }
+          if (!newPin || newPin.length < 4) {
+            Swal.showValidationMessage('รหัส PIN ใหม่ต้องมีอย่างน้อย 4 หลัก');
+            return false;
+          }
+          if (newPin !== confirmPin) {
+            Swal.showValidationMessage('รหัส PIN ใหม่และยืนยันรหัส PIN ไม่ตรงกัน');
+            return false;
+          }
+          return { oldPin, newPin };
+        }
+      });
+
+      if (formValues) {
+        try {
+          const res = await fetch('/api/auth/change-pin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: user.id,
+              oldPin: formValues.oldPin,
+              newPin: formValues.newPin
+            })
+          });
+          const json = await res.json();
+          if (json.success) {
+            Swal.fire({
+              icon: 'success',
+              title: 'เปลี่ยนรหัส PIN สำเร็จ!',
+              text: json.message,
+              confirmButtonColor: '#2563eb'
+            });
+          } else {
+            Swal.fire({
+              icon: 'error',
+              title: 'ไม่สามารถเปลี่ยนรหัส PIN ได้',
+              text: json.message || 'รหัส PIN เดิมไม่ถูกต้อง',
+              confirmButtonColor: '#ef4444'
+            });
+          }
+        } catch (err) {
+          Swal.fire({
+            icon: 'error',
+            title: 'ข้อผิดพลาดเครือข่าย',
+            text: err.message,
+            confirmButtonColor: '#ef4444'
+          });
         }
       }
     }

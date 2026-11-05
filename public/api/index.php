@@ -326,6 +326,10 @@ if ($method === 'GET' && $path === '/auth/users') {
 
 // 2. POST /api/auth/login
 if ($method === 'POST' && $path === '/auth/login') {
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+
     $body = get_json_body();
     $email = trim($body['email'] ?? '');
     $userId = trim($body['userId'] ?? '');
@@ -365,6 +369,22 @@ if ($method === 'POST' && $path === '/auth/login') {
         json_resp(['success' => false, 'message' => 'ไม่พบบัญชีผู้ใช้งานในระบบ'], 404);
     }
 
+    // Rate Limiting / Brute-force Lockout Protection (Max 5 failed attempts -> Lock 5 minutes)
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'client';
+    $targetId = $user['id'];
+    $attemptKey = 'login_fails_' . md5($ip . '_' . $targetId);
+    $lockKey = 'login_lock_' . md5($ip . '_' . $targetId);
+
+    if (isset($_SESSION[$lockKey]) && time() < $_SESSION[$lockKey]) {
+        $remainingSec = $_SESSION[$lockKey] - time();
+        $remainingMin = ceil($remainingSec / 60);
+        json_resp([
+            'success' => false,
+            'locked' => true,
+            'message' => "บัญชีนี้ถูกระงับการเข้าสู่ระบบชั่วคราวเนื่องจากกรอกรหัส PIN ผิดเกินกำหนด กรุณารออีก {$remainingMin} นาที"
+        ], 429);
+    }
+
     // PIN Security Check for ALL users (teacher, dept_head, admin, etc.)
     $userPin = !empty($user['pin_code']) ? trim($user['pin_code']) : '1234';
     if (!empty($userPin)) {
@@ -376,20 +396,80 @@ if ($method === 'POST' && $path === '/auth/login') {
                 'name' => $user['name'],
                 'position' => $user['position_title'],
                 'department' => $user['department'],
-                'message' => 'กรุณากรอกรหัส PIN 4 หลักเพื่อเข้าสู่ระบบ'
+                'message' => 'กรุณากรอกรหัส PIN ประจำตัวเพื่อเข้าสู่ระบบ'
             ], 401);
         }
 
         if (trim($pin) !== $userPin) {
+            $fails = ($_SESSION[$attemptKey] ?? 0) + 1;
+            $_SESSION[$attemptKey] = $fails;
+
+            if ($fails >= 5) {
+                $_SESSION[$lockKey] = time() + 300; // Lock for 5 minutes
+                unset($_SESSION[$attemptKey]);
+                json_resp([
+                    'success' => false,
+                    'locked' => true,
+                    'message' => 'คุณกรอกรหัส PIN ผิดเกิน 5 ครั้ง ระบบได้ระงับการเข้าสู่ระบบชั่วคราวเป็นเวลา 5 นาที เพื่อความปลอดภัย'
+                ], 429);
+            }
+
+            $remainingTries = 5 - $fails;
             json_resp([
                 'success' => false,
                 'requirePin' => true,
-                'message' => 'รหัส PIN ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง'
+                'message' => "รหัส PIN ไม่ถูกต้อง (เหลือโอกาสลองอีก {$remainingTries} ครั้ง)"
             ], 401);
         }
     }
 
+    // Login successful: Clear failed login tracker
+    unset($_SESSION[$attemptKey]);
+    unset($_SESSION[$lockKey]);
+
     json_resp(['success' => true, 'user' => $user]);
+}
+
+// 2.1 POST /api/auth/change-pin (Allow users to update their personal PIN)
+if ($method === 'POST' && $path === '/auth/change-pin') {
+    $body = get_json_body();
+    $userId = trim($body['userId'] ?? '');
+    $oldPin = trim($body['oldPin'] ?? '');
+    $newPin = trim($body['newPin'] ?? '');
+
+    if (!$userId || !$newPin) {
+        json_resp(['success' => false, 'message' => 'กรุณากรอกข้อมูลให้ครบถ้วน'], 400);
+    }
+
+    if (strlen($newPin) < 4 || strlen($newPin) > 16) {
+        json_resp(['success' => false, 'message' => 'รหัส PIN ใหม่ต้องมีความยาวระหว่าง 4 ถึง 16 ตัวอักษร'], 400);
+    }
+
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $user = $stmt->fetch();
+    if (!$user) {
+        json_resp(['success' => false, 'message' => 'ไม่พบบัญชีผู้ใช้งานในระบบ'], 404);
+    }
+
+    $currentPin = !empty($user['pin_code']) ? trim($user['pin_code']) : '1234';
+    if (!empty($currentPin) && $oldPin !== $currentPin) {
+        json_resp(['success' => false, 'message' => 'รหัส PIN ปัจจุบันไม่ถูกต้อง'], 403);
+    }
+
+    $upd = $pdo->prepare("UPDATE users SET pin_code = ? WHERE id = ?");
+    $upd->execute([$newPin, $userId]);
+
+    // If this user is a department head, sync with department pin
+    if ($user['role'] === 'dept_head' && !empty($user['department'])) {
+        $updDept = $pdo->prepare("UPDATE departments SET head_pin = ? WHERE name = ?");
+        $updDept->execute([$newPin, $user['department']]);
+    }
+
+    json_resp([
+        'success' => true,
+        'message' => 'เปลี่ยนรหัส PIN สำเร็จเรียบร้อยแล้ว กรุณาใช้รหัสใหม่นี้ในการเข้าสู่ระบบครั้งถัดไป'
+    ]);
 }
 
 // 3. GET /api/terms
@@ -939,6 +1019,38 @@ if ($method === 'DELETE' && preg_match('#^/(?:admin/)?plans/([^/]+)$#', $path, $
         'planId' => $planId,
         'driveDeleted' => $driveDeleted
     ]);
+}
+
+// 9.3 POST /api/plans/:id/sync-drive or /api/admin/plans/:id/sync-drive (Force sync single plan to Google Drive)
+if ($method === 'POST' && preg_match('#^/(?:admin/)?plans/([^/]+)/sync-drive$#', $path, $matches)) {
+    @set_time_limit(180);
+    $planId = $matches[1];
+    $stmt = $pdo->prepare("SELECT * FROM lesson_plans WHERE id = ?");
+    $stmt->execute([$planId]);
+    $plan = $stmt->fetch();
+    if (!$plan) {
+        json_resp(['success' => false, 'message' => 'ไม่พบข้อมูลแผนการสอน'], 404);
+    }
+
+    $ok = syncPlanToGoogleDriveIfMissing($pdo, $plan);
+    if ($ok && !empty($plan['google_drive_view_link'])) {
+        json_resp([
+            'success' => true,
+            'message' => 'อัปโหลดและซิงค์ไฟล์ขึ้น Google Drive เรียบร้อยแล้ว',
+            'webViewLink' => $plan['google_drive_view_link'],
+            'fileId' => $plan['google_drive_file_id']
+        ]);
+    } else {
+        $relPath = $plan['stamped_file_path'] ?: ($plan['local_file_path'] ?? '');
+        $fullPath = $relPath ? (__DIR__ . '/../../' . ltrim($relPath, '/')) : '';
+        $fileExists = $fullPath && file_exists($fullPath);
+        json_resp([
+            'success' => false,
+            'message' => $fileExists 
+                ? 'ไม่สามารถอัปโหลดขึ้น Google Drive ได้ในขณะนี้ (กรุณาตรวจสอบการตั้งค่า Drive หรือลองใหม่อีกครั้ง)' 
+                : 'ไม่พบไฟล์ PDF ในระบบ กรุณาให้ครูผู้สอนแนบไฟล์ส่งใหม่อีกครั้ง'
+        ], 400);
+    }
 }
 
 // 10. GET /api/plans/teacher/:email
@@ -2004,7 +2116,18 @@ function syncPlanToGoogleDriveIfMissing($pdo, &$plan) {
     $dept = $plan['teacher_department'] ?: 'กลุ่มสาระทั่วไป';
     $teacher = $plan['teacher_name'] ?: 'ครูผู้สอน';
 
+    // 1. Try Google Apps Script Web App first
     $driveRes = uploadViaGoogleScript($fullPath, $origName, $dept, $teacher, null);
+
+    // 2. Fallback to direct Service Account upload if Google Apps Script fails
+    if (!$driveRes) {
+        $token = getGoogleAccessToken();
+        if ($token) {
+            $rootFolderId = '1hZ3MNDvHOK2mfUxQPIauuN9smqvDXlXt';
+            $driveRes = uploadFileToGoogleDrive($token, $fullPath, $origName, $rootFolderId, $dept, $teacher);
+        }
+    }
+
     if ($driveRes && !empty($driveRes['fileId'])) {
         $upd = $pdo->prepare("UPDATE lesson_plans SET google_drive_file_id = ?, google_drive_view_link = ?, google_drive_download_link = ? WHERE id = ?");
         $upd->execute([$driveRes['fileId'], $driveRes['webViewLink'], $driveRes['downloadLink'], $plan['id']]);
@@ -2061,7 +2184,8 @@ function uploadFileToGoogleDrive($token, $filePath, $fileName, $targetFolderId =
         ],
         CURLOPT_POSTFIELDS => json_encode($metadata),
         CURLOPT_TIMEOUT => 30,
-        CURLOPT_SSL_VERIFYPEER => true
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => 0
     ]);
     $initRes = curl_exec($ch);
     $initHttp = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -2079,25 +2203,27 @@ function uploadFileToGoogleDrive($token, $filePath, $fileName, $targetFolderId =
 
     if (!$uploadLocation) return null;
 
-    $fileHandle = fopen($filePath, 'rb');
+    $fileData = @file_get_contents($filePath);
+    if ($fileData === false) return null;
+
+    // Step 2: Stream Data to Location via PUT (clean POSTFIELDS buffer without chunked upload issues)
     $ch = curl_init($uploadLocation);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CUSTOMREQUEST => 'PUT',
-        CURLOPT_INFILE => $fileHandle,
-        CURLOPT_INFILESIZE => $fileSize,
-        CURLOPT_UPLOAD => true,
+        CURLOPT_POSTFIELDS => $fileData,
         CURLOPT_HTTPHEADER => [
             "Content-Length: {$fileSize}",
             "Content-Type: {$mimeType}"
         ],
         CURLOPT_TIMEOUT => 120,
-        CURLOPT_SSL_VERIFYPEER => true
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => 0
     ]);
     $uploadRes = curl_exec($ch);
     $uploadHttp = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $uploadErr = curl_error($ch);
     curl_close($ch);
-    if (is_resource($fileHandle)) fclose($fileHandle);
 
     if ($uploadRes && ($uploadHttp === 200 || $uploadHttp === 201)) {
         $data = json_decode($uploadRes, true);
@@ -2110,6 +2236,7 @@ function uploadFileToGoogleDrive($token, $filePath, $fileName, $targetFolderId =
         }
     }
 
+    @file_put_contents(__DIR__ . '/../../data/gdrive_error.log', date('Y-m-d H:i:s') . " PUT Upload HTTP: {$uploadHttp} Err: {$uploadErr} Res: " . substr((string)$uploadRes, 0, 500) . "\n", FILE_APPEND);
     return null;
 }
 

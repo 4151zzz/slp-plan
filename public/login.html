@@ -1346,13 +1346,13 @@
           <div id="pinBox" class="pin-auth-container active">
             <div class="pin-auth-header">
               <div class="pin-auth-title">
-                <i class="fa-solid fa-lock"></i> รหัส PIN ประจำตัว (4 หลัก)
+                <i class="fa-solid fa-lock"></i> รหัส PIN ประจำตัว
               </div>
             </div>
-            <input type="password" id="loginPin" class="pin-input-styled" maxlength="4" placeholder="• • • •"
-              pattern="[0-9]*" inputmode="numeric" required>
-            <div style="font-size: 0.76rem; color: #166534; margin-top: 6px; text-align: center;">
-              จำเป็นสำหรับทุกตำแหน่ง (ค่าเริ่มต้น: 1234 หรือตามที่กำหนดไว้)
+            <input type="password" id="loginPin" class="pin-input-styled" maxlength="16" placeholder="• • • •"
+              pattern="[0-9]*" inputmode="numeric" required autocomplete="current-password">
+            <div style="font-size: 0.76rem; color: #64748b; margin-top: 6px; text-align: center;">
+              <i class="fa-solid fa-shield-halved"></i> ระบุรหัส PIN ประจำตัวเพื่อยืนยันตัวตนเข้าใช้งานระบบ
             </div>
           </div>
 
@@ -1362,41 +1362,40 @@
           </button>
         </form>
 
-        <!-- Quick Demo Switcher Section -->
-        <div class="quick-test-section">
-          <div class="quick-test-header">
-            <div class="quick-test-title-group">
-              <span class="quick-test-title">
-                <i class="fa-solid fa-user-check text-primary"></i> บัญชีผู้ใช้งานในระบบ
-              </span>
-              <span class="quick-test-sub">(คลิกเพื่อเข้าสู่ระบบด่วน)</span>
+        <!-- Collapsible Accounts Directory Section (Protected by manual PIN entry) -->
+        <details class="quick-test-section" style="margin-top: 1.5rem; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 12px 16px; background: #f8fafc; cursor: pointer;">
+          <summary style="font-size: 0.85rem; font-weight: 600; color: #475569; display: flex; align-items: center; justify-content: space-between; outline: none;">
+            <span><i class="fa-solid fa-users-gear" style="color: #2563eb; margin-right: 6px;"></i> รายชื่อบัญชีผู้ใช้งานในระบบ</span>
+            <span style="font-size: 0.74rem; background: #e2e8f0; color: #475569; padding: 2px 8px; border-radius: 999px;">คลิกเพื่อเปิด/ปิด</span>
+          </summary>
+          <div style="margin-top: 14px; cursor: default;">
+            <div class="quick-test-header" style="margin-bottom: 10px;">
+              <div class="quick-test-title-group">
+                <span class="quick-test-sub" style="font-size: 0.8rem; color: #64748b;">(คลิกเพื่อเลือกบัญชี แล้วต้องกรอกรหัส PIN ของบัญชีนั้นเพื่อเข้าสู่ระบบ)</span>
+              </div>
+              <button type="button" class="btn-show-all-users" onclick="openAllUsersModal()">
+                <i class="fa-solid fa-users"></i> ดูทั้งหมด (<span id="allUsersCount">1 บัญชี</span>) <i
+                  class="fa-solid fa-arrow-right" style="font-size: 0.68rem; margin-left: 2px;"></i>
+              </button>
             </div>
-            <button type="button" class="btn-show-all-users" onclick="openAllUsersModal()">
-              <i class="fa-solid fa-users"></i> ดูทั้งหมด (<span id="allUsersCount">1 บัญชี</span>) <i
-                class="fa-solid fa-arrow-right" style="font-size: 0.68rem; margin-left: 2px;"></i>
-            </button>
-          </div>
 
-          <!-- Role Filter Tabs -->
-          <div class="role-filter-pills" id="roleFilterPills">
-            <button type="button" class="role-filter-btn active" onclick="filterQuickRoles('all', this)">✨
-              แนะนำ</button>
-            <button type="button" class="role-filter-btn" onclick="filterQuickRoles('teacher', this)">👨‍🏫
-              ครูผู้สอน</button>
-            <button type="button" class="role-filter-btn" onclick="filterQuickRoles('dept_head', this)">🔬
-              หัวหน้ากลุ่มสาระฯ</button>
-            <button type="button" class="role-filter-btn" onclick="filterQuickRoles('exec', this)">🏛️
-              ผู้บริหาร/แอดมิน</button>
-          </div>
+            <!-- Role Filter Tabs -->
+            <div class="role-filter-pills" id="roleFilterPills">
+              <button type="button" class="role-filter-btn active" onclick="filterQuickRoles('all', this)">✨ แนะนำ</button>
+              <button type="button" class="role-filter-btn" onclick="filterQuickRoles('teacher', this)">👨‍🏫 ครูผู้สอน</button>
+              <button type="button" class="role-filter-btn" onclick="filterQuickRoles('dept_head', this)">🔬 หัวหน้ากลุ่มสาระฯ</button>
+              <button type="button" class="role-filter-btn" onclick="filterQuickRoles('exec', this)">🏛️ ผู้บริหาร/แอดมิน</button>
+            </div>
 
-          <!-- Highlight Quick Roles with Zero Overflow Grid -->
-          <div class="quick-roles-grid" id="quickRolesGrid">
-            <!-- Populated dynamically via JS -->
-            <div style="text-align: center; color: #94a3b8; font-size: 0.85rem; padding: 1rem; grid-column: 1 / -1;">
-              <i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดบัญชีผู้ใช้งาน...
+            <!-- Highlight Quick Roles with Zero Overflow Grid -->
+            <div class="quick-roles-grid" id="quickRolesGrid">
+              <!-- Populated dynamically via JS -->
+              <div style="text-align: center; color: #94a3b8; font-size: 0.85rem; padding: 1rem; grid-column: 1 / -1;">
+                <i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดบัญชีผู้ใช้งาน...
+              </div>
             </div>
           </div>
-        </div>
+        </details>
 
         <!-- Footer -->
         <div class="auth-footer">
@@ -1703,11 +1702,11 @@
 
       const { value: enteredPin, isConfirmed } = await Swal.fire({
         title: '🔒 กรุณากรอกรหัส PIN',
-        html: `เข้าใช้งานด้วยบัญชี: <strong>${escapeHtml(email)}</strong><br><span style="font-size: 0.85rem; color: #64748b;">(ระบุรหัส PIN 4 หลัก)</span>`,
+        html: `เข้าใช้งานด้วยบัญชี: <strong>${escapeHtml(email)}</strong><br><span style="font-size: 0.85rem; color: #64748b;">(ระบุรหัส PIN ประจำตัวของท่านเพื่อเข้าสู่ระบบ)</span>`,
         input: 'password',
-        inputValue: '1234',
+        inputValue: '',
         inputAttributes: {
-          maxlength: '4',
+          maxlength: '16',
           inputmode: 'numeric',
           placeholder: '• • • •',
           style: 'text-align: center; font-size: 2rem; letter-spacing: 0.5rem;'
@@ -1717,14 +1716,14 @@
         cancelButtonText: 'ยกเลิก',
         confirmButtonColor: '#2563eb',
         inputValidator: (val) => {
-          if (!val) return 'กรุณาระบุรหัส PIN 4 หลัก';
-          if (val.length !== 4) return 'รหัส PIN ต้องเป็นตัวเลข 4 หลัก';
+          if (!val || !val.trim()) return 'กรุณาระบุรหัส PIN ประจำตัวก่อนเข้าสู่ระบบ';
+          if (val.trim().length < 4) return 'รหัส PIN ต้องมีความยาวอย่างน้อย 4 หลัก';
         }
       });
 
       if (isConfirmed && enteredPin) {
-        pinInput.value = enteredPin;
-        await submitLoginRequest(email, userId, enteredPin);
+        pinInput.value = enteredPin.trim();
+        await submitLoginRequest(email, userId, enteredPin.trim());
       }
     }
 
@@ -1763,12 +1762,13 @@
               พบบัญชี: <strong>${escapeHtml(json.name || email)}</strong><br>
               <div style="font-size: 0.88rem; color: #2563eb; margin: 4px 0 10px;">${escapeHtml(json.position || '')} (${escapeHtml(json.department || '')})</div>
               <div style="font-size: 0.82rem; color: #64748b;">
-                กรุณาระบุรหัส PIN 4 หลักประจำตัวผู้ใช้งาน
+                กรุณาระบุรหัส PIN ประจำตัวผู้ใช้งานเพื่อความปลอดภัย
               </div>
             `,
             input: 'password',
+            inputValue: '',
             inputAttributes: {
-              maxlength: '4',
+              maxlength: '16',
               inputmode: 'numeric',
               placeholder: '• • • •',
               style: 'text-align: center; font-size: 2rem; letter-spacing: 0.5rem;'
@@ -1778,8 +1778,8 @@
             cancelButtonText: 'ยกเลิก',
             confirmButtonColor: '#2563eb',
             inputValidator: (val) => {
-              if (!val) return 'กรุณาระบุรหัส PIN';
-              if (val.length !== 4) return 'รหัส PIN ต้องเป็นตัวเลข 4 หลัก';
+              if (!val || !val.trim()) return 'กรุณาระบุรหัส PIN ก่อนเข้าสู่ระบบ';
+              if (val.trim().length < 4) return 'รหัส PIN ต้องมีความยาวอย่างน้อย 4 หลัก';
             }
           });
 
@@ -1787,7 +1787,7 @@
 
           btn.disabled = true;
           btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังตรวจสอบ PIN...';
-          body.pin = enteredPin;
+          body.pin = enteredPin.trim();
 
           res = await fetch('/api/auth/login', {
             method: 'POST',

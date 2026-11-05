@@ -255,6 +255,103 @@ function handleLogout() {
   });
 }
 
+async function openChangePinModal() {
+  const userStr = localStorage.getItem('activeUser');
+  if (!userStr) return;
+  const user = JSON.parse(userStr);
+
+  const { value: formValues } = await Swal.fire({
+    title: '<i class="fa-solid fa-key" style="color: #2563eb;"></i> เปลี่ยนรหัส PIN ส่วนตัว',
+    html: `
+      <div style="text-align: left; font-size: 0.88rem; color: #334155; margin-bottom: 12px; background: #f8fafc; padding: 10px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+        เข้าสู่ระบบด้วยบัญชี: <strong>${escapeHtml(user.name)}</strong><br>
+        อีเมล: <span style="color: #2563eb;">${escapeHtml(user.email)}</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px; text-align: left;">
+        <div>
+          <label style="font-size: 0.82rem; font-weight: 600; color: #475569;">รหัส PIN ปัจจุบัน:</label>
+          <input type="password" id="swalOldPin" class="swal2-input" placeholder="ระบุ PIN เดิม" style="margin: 4px 0 0; width: 100%; font-size: 1rem; box-sizing: border-box;" maxlength="16">
+        </div>
+        <div>
+          <label style="font-size: 0.82rem; font-weight: 600; color: #475569;">รหัส PIN ใหม่ (4-16 หลัก):</label>
+          <input type="password" id="swalNewPin" class="swal2-input" placeholder="ระบุ PIN ใหม่ที่ต้องการตั้ง" style="margin: 4px 0 0; width: 100%; font-size: 1rem; box-sizing: border-box;" maxlength="16">
+        </div>
+        <div>
+          <label style="font-size: 0.82rem; font-weight: 600; color: #475569;">ยืนยันรหัส PIN ใหม่อีกครั้ง:</label>
+          <input type="password" id="swalConfirmPin" class="swal2-input" placeholder="ระบุ PIN ใหม่อีกครั้งเพื่อยืนยัน" style="margin: 4px 0 0; width: 100%; font-size: 1rem; box-sizing: border-box;" maxlength="16">
+        </div>
+      </div>
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: '<i class="fa-solid fa-save"></i> บันทึกรหัส PIN ใหม่',
+    cancelButtonText: 'ยกเลิก',
+    confirmButtonColor: '#2563eb',
+    preConfirm: () => {
+      const oldPin = document.getElementById('swalOldPin').value.trim();
+      const newPin = document.getElementById('swalNewPin').value.trim();
+      const confirmPin = document.getElementById('swalConfirmPin').value.trim();
+
+      if (!oldPin) {
+        Swal.showValidationMessage('กรุณากรอกรหัส PIN ปัจจุบัน');
+        return false;
+      }
+      if (!newPin || newPin.length < 4) {
+        Swal.showValidationMessage('รหัส PIN ใหม่ต้องมีอย่างน้อย 4 หลัก');
+        return false;
+      }
+      if (newPin !== confirmPin) {
+        Swal.showValidationMessage('รหัส PIN ใหม่และยืนยันรหัส PIN ไม่ตรงกัน');
+        return false;
+      }
+      return { oldPin, newPin };
+    }
+  });
+
+  if (formValues) {
+    try {
+      Swal.fire({
+        title: 'กำลังบันทึกรหัส PIN ใหม่...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      const res = await fetch('/api/auth/change-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          oldPin: formValues.oldPin,
+          newPin: formValues.newPin
+        })
+      });
+      const json = await res.json();
+      if (json.success) {
+        Swal.fire({
+          icon: 'success',
+          title: 'เปลี่ยนรหัส PIN สำเร็จ!',
+          text: json.message,
+          confirmButtonColor: '#2563eb'
+        });
+      } else {
+        Swal.fire({
+          icon: 'error',
+          title: 'ไม่สามารถเปลี่ยนรหัส PIN ได้',
+          text: json.message || 'รหัส PIN เดิมไม่ถูกต้อง',
+          confirmButtonColor: '#ef4444'
+        });
+      }
+    } catch (err) {
+      Swal.fire({
+        icon: 'error',
+        title: 'ข้อผิดพลาดเครือข่าย',
+        text: err.message,
+        confirmButtonColor: '#ef4444'
+      });
+    }
+  }
+}
+
 function getRoleTitle(role) {
   const map = {
     teacher: 'ครูผู้สอน',
@@ -1989,7 +2086,7 @@ async function loadAdminPlans() {
     json.data.forEach(p => {
       const driveHtml = p.google_drive_view_link 
         ? `<a href="${p.google_drive_view_link}" target="_blank" class="btn-gdrive" title="เปิดดูไฟล์บน Google Drive"><i class="fa-brands fa-google-drive"></i> ดูบนไดรฟ์</a>`
-        : '<span style="color: #94a3b8;">-</span>';
+        : `<button type="button" class="btn btn-sm" onclick="syncSinglePlanDrive('${p.id}')" style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; border-radius: 999px; font-weight: 600; padding: 3px 8px; font-size: 0.74rem; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="กดเพื่อให้อัปโหลดและซิงค์ไฟล์นี้ขึ้น Google Drive ทันที"><i class="fa-solid fa-arrows-rotate"></i> ซิงค์ขึ้นไดรฟ์</button>`;
 
       const hasRound2 = (p.current_round === 2 || (p.round_2_status && p.round_2_status !== 'not_started'));
       const r1Approved = p.submission_status === 'approved';
@@ -2110,7 +2207,7 @@ async function loadAdminPlans() {
                 <i class="fa-solid fa-file-pdf"></i>
               </a>
               ${actionButtonHtml}
-              ${currentUser && currentUser.role === 'admin' ? `
+              ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'director') ? `
                 <button type="button" class="btn-action-icon delete-btn" onclick="confirmDeletePlan('${p.id}', '${escapeHtml(p.teacher_name)}', '${escapeHtml(p.subject_code)}')" style="color: #ef4444; border-color: #fca5a5; background: #fff5f5;" title="ลบแผนการสอน (ทั้งในฐานข้อมูลและ Drive)">
                   <i class="fa-solid fa-trash-can"></i>
                 </button>
@@ -2127,6 +2224,43 @@ async function loadAdminPlans() {
     tbody.innerHTML = `<tr><td colspan="7" style="color: #dc2626; text-align: center;">เกิดข้อผิดพลาด: ${err.message}</td></tr>`;
   }
 }
+
+// On-demand Google Drive Sync for Single Plan
+window.syncSinglePlanDrive = async function(planId) {
+  Swal.fire({
+    title: 'กำลังซิงค์ไฟล์ขึ้น Google Drive...',
+    html: 'กำลังเชื่อมต่อและอัปโหลดไฟล์ PDF ขึ้นโฟลเดอร์ Google Drive<br>กรุณารอสักครู่...',
+    allowOutsideClick: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  try {
+    const res = await fetch(`/api/plans/${planId}/sync-drive`, { method: 'POST' });
+    const json = await res.json();
+    if (json.success) {
+      await Swal.fire({
+        icon: 'success',
+        title: 'ซิงค์ไฟล์สำเร็จ!',
+        text: 'อัปโหลดไฟล์ขึ้น Google Drive เรียบร้อยแล้ว',
+        timer: 1800,
+        showConfirmButton: false
+      });
+      loadAdminPlans();
+    } else {
+      Swal.fire({
+        icon: 'error',
+        title: 'ไม่สามารถซิงค์ได้',
+        text: json.message || 'เกิดข้อผิดพลาดในการอัปโหลดไฟล์ขึ้น Google Drive'
+      });
+    }
+  } catch (err) {
+    Swal.fire({
+      icon: 'error',
+      title: 'การเชื่อมต่อผิดพลาด',
+      text: err.message
+    });
+  }
+};
 
 // Global Plan Delete Handler (Admin Only)
 window.confirmDeletePlan = async function(planId, teacherName, subjectCode) {
