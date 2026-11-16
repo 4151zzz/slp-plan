@@ -1,6 +1,5 @@
 <IfModule mod_rewrite.c>
 RewriteEngine On
-RewriteBase /
 
 # Route API calls to api/index.php
 RewriteRule ^api/(.*)$ api/index.php [QSA,L]

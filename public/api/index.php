@@ -15,6 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+@ini_set('display_errors', '0');
 @ini_set('memory_limit', '512M');
 @set_time_limit(300);
 
@@ -40,28 +41,33 @@ function getDatabase() {
     static $pdo = null;
     if ($pdo !== null) return $pdo;
 
-    // Load .env if available
-    $envPath = __DIR__ . '/../../.env';
+    // Load .env if available (safe against open_basedir)
+    $envCandidates = [__DIR__ . '/../.env', __DIR__ . '/../../.env'];
     $dbHost = 'localhost';
     $dbPort = '3306';
     $dbUser = 'saluangac_plan';
     $dbPass = 'wun426655';
     $dbName = 'saluangac_plan';
 
-    if (file_exists($envPath)) {
-        $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        foreach ($lines as $line) {
-            if (strpos(trim($line), '#') === 0) continue;
-            if (strpos($line, '=') !== false) {
-                list($key, $val) = explode('=', $line, 2);
-                $key = trim($key);
-                $val = trim($val, " \t\n\r\0\x0B\"'");
-                if ($key === 'DB_HOST') $dbHost = $val;
-                if ($key === 'DB_PORT') $dbPort = $val;
-                if ($key === 'DB_USER') $dbUser = $val;
-                if ($key === 'DB_PASSWORD') $dbPass = $val;
-                if ($key === 'DB_NAME') $dbName = $val;
+    foreach ($envCandidates as $envPath) {
+        if (@file_exists($envPath)) {
+            $lines = @file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if (is_array($lines)) {
+                foreach ($lines as $line) {
+                    if (strpos(trim($line), '#') === 0) continue;
+                    if (strpos($line, '=') !== false) {
+                        list($key, $val) = explode('=', $line, 2);
+                        $key = trim($key);
+                        $val = trim($val, " \t\n\r\0\x0B\"'");
+                        if ($key === 'DB_HOST') $dbHost = $val;
+                        if ($key === 'DB_PORT') $dbPort = $val;
+                        if ($key === 'DB_USER') $dbUser = $val;
+                        if ($key === 'DB_PASSWORD') $dbPass = $val;
+                        if ($key === 'DB_NAME') $dbName = $val;
+                    }
+                }
             }
+            break;
         }
     }
 
@@ -107,9 +113,576 @@ function gen_uuid() {
 }
 
 function ensure_dir($path) {
-    if (!file_exists($path)) {
+    if (!@file_exists($path)) {
         @mkdir($path, 0755, true);
     }
+}
+
+/**
+ * Returns a guaranteed writable upload directory that respects shared hosting open_basedir
+ */
+function get_upload_dir() {
+    $candidates = [
+        __DIR__ . '/../data/uploads',
+        __DIR__ . '/../../data/uploads',
+        __DIR__ . '/uploads',
+        sys_get_temp_dir() . '/lesson_plan_uploads'
+    ];
+    foreach ($candidates as $dir) {
+        if (@is_dir($dir) && @is_writable($dir)) {
+            return $dir;
+        }
+        if (@mkdir($dir, 0755, true) && @is_dir($dir) && @is_writable($dir)) {
+            return $dir;
+        }
+    }
+    return __DIR__ . '/../data/uploads';
+}
+
+/**
+ * Moves or copies uploaded PDF to writable storage; falls back to tmp_name if needed
+ */
+function save_uploaded_pdf_file($tmpFilePath, $uniqueFileName) {
+    $uploadDir = get_upload_dir();
+    $destPath = $uploadDir . '/' . $uniqueFileName;
+    $moved = @move_uploaded_file($tmpFilePath, $destPath);
+    if (!$moved || !@file_exists($destPath)) {
+        @copy($tmpFilePath, $destPath);
+    }
+    if (@file_exists($destPath) && @filesize($destPath) > 0) {
+        return $destPath;
+    }
+    return $tmpFilePath;
+}
+
+/**
+ * Searches all candidate upload directories for a relative path or filename
+ */
+function find_existing_local_pdf($relPath) {
+    if (empty($relPath)) return null;
+    $clean = ltrim($relPath, '/\\');
+    $base = basename($clean);
+    $candidates = [
+        __DIR__ . '/../' . $clean,
+        __DIR__ . '/../data/uploads/' . $base,
+        __DIR__ . '/../../' . $clean,
+        __DIR__ . '/../../data/uploads/' . $base,
+        __DIR__ . '/uploads/' . $base,
+        sys_get_temp_dir() . '/lesson_plan_uploads/' . $base
+    ];
+    foreach ($candidates as $c) {
+        if (@file_exists($c) && @is_file($c) && @filesize($c) > 0) {
+            return $c;
+        }
+    }
+    return null;
+}
+
+function delete_local_pdf_if_exists($relPath) {
+    if (empty($relPath)) return;
+    $clean = ltrim($relPath, '/\\');
+    $base = basename($clean);
+    $candidates = [
+        __DIR__ . '/../' . $clean,
+        __DIR__ . '/../data/uploads/' . $base,
+        __DIR__ . '/../../' . $clean,
+        __DIR__ . '/../../data/uploads/' . $base,
+        __DIR__ . '/uploads/' . $base
+    ];
+    foreach ($candidates as $c) {
+        if (@file_exists($c) && @is_file($c)) {
+            @unlink($c);
+        }
+    }
+}
+
+/**
+ * Resolves a lesson plan's PDF file on disk, or automatically fetches & caches it from Google Drive
+ */
+function resolve_plan_pdf_path($plan) {
+    if (!$plan) return null;
+
+    $pathsToTry = array_filter([
+        !empty($plan['stamped_file_path']) ? $plan['stamped_file_path'] : null,
+        !empty($plan['local_file_path']) ? $plan['local_file_path'] : null
+    ]);
+    foreach ($pathsToTry as $rel) {
+        $found = find_existing_local_pdf($rel);
+        if ($found) return $found;
+    }
+
+    // Fallback: Download from Google Drive if file ID or link is available
+    $driveFileId = $plan['google_drive_file_id'] ?? '';
+    if (empty($driveFileId) && !empty($plan['google_drive_view_link'])) {
+        if (preg_match('#/d/([a-zA-Z0-9_-]+)#', $plan['google_drive_view_link'], $m)) {
+            $driveFileId = $m[1];
+        } elseif (preg_match('#[?&]id=([a-zA-Z0-9_-]+)#', $plan['google_drive_view_link'], $m)) {
+            $driveFileId = $m[1];
+        }
+    }
+    if (!empty($driveFileId) && strpos($driveFileId, 'mock_') !== 0 && strpos($driveFileId, 'gdrive_') !== 0) {
+        $dlUrl = "https://drive.google.com/uc?export=download&id=" . rawurlencode($driveFileId);
+        $ch = curl_init($dlUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HEADER, true);
+        curl_setopt($ch, CURLOPT_HTTPGET, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 20);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) LessonPlanSystem/1.0');
+
+        $raw = curl_exec($ch);
+        $code = intval(curl_getinfo($ch, CURLINFO_HTTP_CODE));
+        $hSize = intval(curl_getinfo($ch, CURLINFO_HEADER_SIZE));
+        $rUrl = curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+        curl_close($ch);
+
+        $headers = $raw !== false ? substr($raw, 0, $hSize) : '';
+        $body = $raw !== false ? substr($raw, $hSize) : '';
+
+        $hops = 0;
+        while (in_array($code, [301, 302, 303, 307, 308]) && $hops < 5) {
+            $hops++;
+            if (empty($rUrl) && preg_match('/^Location:\s*(.+)$/mi', $headers, $m)) {
+                $rUrl = trim($m[1]);
+            }
+            if (empty($rUrl)) break;
+            $ch2 = curl_init($rUrl);
+            curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch2, CURLOPT_HEADER, true);
+            curl_setopt($ch2, CURLOPT_HTTPGET, true);
+            curl_setopt($ch2, CURLOPT_TIMEOUT, 60);
+            curl_setopt($ch2, CURLOPT_CONNECTTIMEOUT, 20);
+            curl_setopt($ch2, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch2, CURLOPT_SSL_VERIFYHOST, 0);
+            curl_setopt($ch2, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) LessonPlanSystem/1.0');
+            $raw2 = curl_exec($ch2);
+            $code = intval(curl_getinfo($ch2, CURLINFO_HTTP_CODE));
+            $hSize2 = intval(curl_getinfo($ch2, CURLINFO_HEADER_SIZE));
+            $rUrl = curl_getinfo($ch2, CURLINFO_REDIRECT_URL);
+            curl_close($ch2);
+            if ($raw2 === false) break;
+            $headers = substr($raw2, 0, $hSize2);
+            $body = substr($raw2, $hSize2);
+        }
+
+        if ($code === 200 && strlen($body) > 100 && strpos($body, '%PDF-') === 0) {
+            $cacheDir = get_upload_dir();
+            $cacheName = !empty($pathsToTry) ? basename(reset($pathsToTry)) : ('plan_drive_' . $plan['id'] . '.pdf');
+            $cachePath = $cacheDir . '/' . $cacheName;
+            if (@file_put_contents($cachePath, $body) && @file_exists($cachePath)) {
+                return $cachePath;
+            }
+            $tmpCache = sys_get_temp_dir() . '/' . $cacheName;
+            if (@file_put_contents($tmpCache, $body) && @file_exists($tmpCache)) {
+                return $tmpCache;
+            }
+        }
+    }
+
+    return null;
+}
+
+// -------------------------------------------------------------
+// Gmail & Telegram Revision Notification Helpers
+// -------------------------------------------------------------
+function get_notification_settings() {
+    $defaults = [
+        'admin_email' => '',
+        'smtp_user' => '',
+        'smtp_pass' => '',
+        'telegram_bot_token' => '',
+        'telegram_chat_id' => ''
+    ];
+
+    // Check environment / .env values
+    $envCandidates = [__DIR__ . '/../.env', __DIR__ . '/../../.env'];
+    foreach ($envCandidates as $envPath) {
+        if (@file_exists($envPath)) {
+            $lines = @file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if (is_array($lines)) {
+                foreach ($lines as $line) {
+                    if (strpos(trim($line), '#') === 0 || strpos($line, '=') === false) continue;
+                    list($k, $v) = explode('=', $line, 2);
+                    $k = trim($k);
+                    $v = trim($v, " \t\n\r\0\x0B\"'");
+                    if ($k === 'ADMIN_NOTIFY_EMAIL' && $v !== '') $defaults['admin_email'] = $v;
+                    if ($k === 'SMTP_USER' && $v !== '') $defaults['smtp_user'] = $v;
+                    if ($k === 'SMTP_PASS' && $v !== '') $defaults['smtp_pass'] = $v;
+                    if ($k === 'TELEGRAM_BOT_TOKEN' && $v !== '') $defaults['telegram_bot_token'] = $v;
+                    if ($k === 'TELEGRAM_CHAT_ID' && $v !== '') $defaults['telegram_chat_id'] = $v;
+                }
+            }
+            break;
+        }
+    }
+
+    // Override with persisted admin settings file
+    $cfgFile = get_upload_dir() . '/notification_settings.json';
+    if (@file_exists($cfgFile)) {
+        $raw = @file_get_contents($cfgFile);
+        $decoded = $raw ? json_decode($raw, true) : null;
+        if (is_array($decoded)) {
+            foreach ($defaults as $k => $v) {
+                if (array_key_exists($k, $decoded) && is_string($decoded[$k])) {
+                    $defaults[$k] = trim($decoded[$k]);
+                }
+            }
+        }
+    }
+
+    return $defaults;
+}
+
+function save_notification_settings($settings) {
+    $cfgFile = get_upload_dir() . '/notification_settings.json';
+    $clean = [
+        'admin_email' => trim((string)($settings['admin_email'] ?? '')),
+        'smtp_user' => trim((string)($settings['smtp_user'] ?? '')),
+        'smtp_pass' => trim((string)($settings['smtp_pass'] ?? '')),
+        'telegram_bot_token' => trim((string)($settings['telegram_bot_token'] ?? '')),
+        'telegram_chat_id' => trim((string)($settings['telegram_chat_id'] ?? ''))
+    ];
+    return @file_put_contents($cfgFile, json_encode($clean, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) !== false;
+}
+
+function send_smtp_gmail($smtpUser, $smtpPass, $toEmails, $subject, $htmlBody) {
+    $smtpUser = trim(str_replace(["\r", "\n"], '', (string)$smtpUser));
+    $smtpPass = str_replace([' ', "\r", "\n"], '', (string)$smtpPass);
+    if (empty($smtpUser) || empty($smtpPass) || empty($toEmails)) {
+        return ['success' => false, 'error' => 'Missing SMTP credentials or recipients'];
+    }
+
+    $ctx = stream_context_create([
+        'ssl' => [
+            'verify_peer' => false,
+            'verify_peer_name' => false,
+            'allow_self_signed' => true,
+            'peer_name' => 'smtp.gmail.com'
+        ]
+    ]);
+
+    // Resolve IPv4 to bypass potential broken IPv6 routes (fixes Network is unreachable 101 on Linux/VPS)
+    $ipv4Addresses = @gethostbynamel('smtp.gmail.com');
+    if (!is_array($ipv4Addresses)) {
+        $singleIp = @gethostbyname('smtp.gmail.com');
+        $ipv4Addresses = ($singleIp && $singleIp !== 'smtp.gmail.com') ? [$singleIp] : [];
+    }
+
+    // Build candidates: Try SSL (465) and STARTTLS (587) with hostname and IPv4
+    $candidates = [
+        ['uri' => 'ssl://smtp.gmail.com:465', 'type' => 'ssl'],
+        ['uri' => 'tcp://smtp.gmail.com:587', 'type' => 'tls']
+    ];
+    foreach ($ipv4Addresses as $ip) {
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            $candidates[] = ['uri' => "ssl://{$ip}:465", 'type' => 'ssl'];
+            $candidates[] = ['uri' => "tcp://{$ip}:587", 'type' => 'tls'];
+        }
+    }
+
+    $fp = false;
+    $connectedType = 'ssl';
+    $errors = [];
+
+    foreach ($candidates as $cand) {
+        $errno = 0;
+        $errstr = '';
+        $conn = @stream_socket_client($cand['uri'], $errno, $errstr, 5, STREAM_CLIENT_CONNECT, $ctx);
+        if ($conn) {
+            $fp = $conn;
+            $connectedType = $cand['type'];
+            break;
+        } else {
+            $errors[] = "{$cand['uri']} ({$errstr} {$errno})";
+        }
+    }
+
+    if (!$fp) {
+        $detail = implode(', ', array_slice($errors, 0, 2));
+        return [
+            'success' => false,
+            'error' => "SMTP connect failed: {$detail} (เซิร์ฟเวอร์/โฮสติ้งอาจบล็อกพอร์ตอีเมล 465/587 หรือมีไฟร์วอลล์กั้น แนะนำให้ใช้ Telegram Bot แทนซึ่งไม่ติดบล็อกพอร์ตครับ)"
+        ];
+    }
+    stream_set_timeout($fp, 10);
+
+    $readResp = function() use ($fp) {
+        $resp = '';
+        while (!feof($fp)) {
+            $line = @fgets($fp, 515);
+            if ($line === false) break;
+            $resp .= $line;
+            if (preg_match('/^\d{3} /', $line)) break;
+        }
+        return $resp;
+    };
+
+    $sendCmd = function($cmd, $expectCode) use ($fp, $readResp) {
+        @fwrite($fp, $cmd . "\r\n");
+        $r = $readResp();
+        $code = intval(substr($r, 0, 3));
+        return [$code === $expectCode || (is_array($expectCode) && in_array($code, $expectCode)), $r];
+    };
+
+    $greet = $readResp();
+    if (intval(substr($greet, 0, 3)) !== 220) {
+        @fclose($fp);
+        return ['success' => false, 'error' => "SMTP greeting failed: {$greet}"];
+    }
+
+    list($ok, $r) = $sendCmd('EHLO localhost', 250);
+    if (!$ok) { @fclose($fp); return ['success' => false, 'error' => "EHLO failed: {$r}"]; }
+
+    // If connected via port 587 (TLS), upgrade connection using STARTTLS
+    if ($connectedType === 'tls') {
+        list($ok, $r) = $sendCmd('STARTTLS', 220);
+        if (!$ok) { @fclose($fp); return ['success' => false, 'error' => "STARTTLS failed: {$r}"]; }
+
+        $cryptoOk = false;
+        if (defined('STREAM_CRYPTO_METHOD_TLS_CLIENT')) {
+            $cryptoOk = @stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+        } else {
+            $cryptoOk = @stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_SSLv23_CLIENT);
+        }
+
+        if (!$cryptoOk) {
+            @fclose($fp);
+            return ['success' => false, 'error' => 'TLS crypto handshake failed'];
+        }
+
+        list($ok, $r) = $sendCmd('EHLO localhost', 250);
+        if (!$ok) { @fclose($fp); return ['success' => false, 'error' => "EHLO after STARTTLS failed: {$r}"]; }
+    }
+
+    list($ok, $r) = $sendCmd('AUTH LOGIN', 334);
+    if (!$ok) { @fclose($fp); return ['success' => false, 'error' => "AUTH LOGIN failed: {$r}"]; }
+
+    list($ok, $r) = $sendCmd(base64_encode($smtpUser), 334);
+    if (!$ok) { @fclose($fp); return ['success' => false, 'error' => "SMTP user rejected: {$r}"]; }
+
+    list($ok, $r) = $sendCmd(base64_encode($smtpPass), 235);
+    if (!$ok) { @fclose($fp); return ['success' => false, 'error' => "SMTP auth failed (check Gmail App Password): {$r}"]; }
+
+    list($ok, $r) = $sendCmd("MAIL FROM:<{$smtpUser}>", 250);
+    if (!$ok) { @fclose($fp); return ['success' => false, 'error' => "MAIL FROM failed: {$r}"]; }
+
+    $validTos = [];
+    foreach ((array)$toEmails as $rcpt) {
+        $rcpt = trim(str_replace(["\r", "\n"], '', (string)$rcpt));
+        if (!filter_var($rcpt, FILTER_VALIDATE_EMAIL)) continue;
+        list($rOk, $rMsg) = $sendCmd("RCPT TO:<{$rcpt}>", [250, 251]);
+        if ($rOk) $validTos[] = $rcpt;
+    }
+
+    if (empty($validTos)) {
+        @fclose($fp);
+        return ['success' => false, 'error' => 'No valid recipient accepted'];
+    }
+
+    list($ok, $r) = $sendCmd('DATA', 354);
+    if (!$ok) { @fclose($fp); return ['success' => false, 'error' => "DATA failed: {$r}"]; }
+
+    $cleanSubject = str_replace(["\r", "\n"], '', $subject);
+    $encodedFromName = '=?UTF-8?B?' . base64_encode('ระบบส่งแผนการสอน โรงเรียนสระหลวงพิทยาคม') . '?=';
+    $encodedSubject = '=?UTF-8?B?' . base64_encode($cleanSubject) . '?=';
+
+    $headers = [
+        "From: {$encodedFromName} <{$smtpUser}>",
+        "To: " . implode(', ', $validTos),
+        "Subject: {$encodedSubject}",
+        "MIME-Version: 1.0",
+        "Content-Type: text/html; charset=UTF-8",
+        "Content-Transfer-Encoding: base64",
+        "Date: " . date('r')
+    ];
+
+    $payload = implode("\r\n", $headers) . "\r\n\r\n" . chunk_split(base64_encode($htmlBody)) . "\r\n.";
+    list($ok, $r) = $sendCmd($payload, 250);
+
+    @fwrite($fp, "QUIT\r\n");
+    @fclose($fp);
+
+    return $ok
+        ? ['success' => true, 'error' => null]
+        : ['success' => false, 'error' => "SMTP DATA rejected: {$r}"];
+}
+
+function send_telegram_alert($botToken, $chatId, $messageText) {
+    $botToken = trim((string)$botToken);
+    $chatId = trim((string)$chatId);
+    if (empty($botToken) || empty($chatId)) {
+        return ['success' => false, 'error' => 'Missing Telegram Bot Token or Chat ID'];
+    }
+
+    $url = "https://api.telegram.org/bot{$botToken}/sendMessage";
+    $postFields = json_encode([
+        'chat_id' => $chatId,
+        'text' => $messageText,
+        'parse_mode' => 'HTML',
+        'disable_web_page_preview' => true
+    ], JSON_UNESCAPED_UNICODE);
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json; charset=utf-8']);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $postFields);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+
+    $res = curl_exec($ch);
+    $http = intval(curl_getinfo($ch, CURLINFO_HTTP_CODE));
+    $err = curl_error($ch);
+    curl_close($ch);
+
+    if ($res === false) {
+        return ['success' => false, 'error' => $err ?: 'Curl error'];
+    }
+    $decoded = json_decode($res, true);
+    if ($http === 200 && !empty($decoded['ok'])) {
+        return ['success' => true, 'error' => null];
+    }
+    return ['success' => false, 'error' => $decoded['description'] ?? "HTTP {$http}"];
+}
+
+function send_revision_notifications($pdo, $planId, $feedback, $reviewerName, $reviewerRole, $roundNumber) {
+    $result = [
+        'emails_targeted' => [],
+        'email_sent' => false,
+        'email_method' => 'none',
+        'email_error' => null,
+        'telegram_sent' => false,
+        'telegram_error' => null
+    ];
+
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM lesson_plans WHERE id = ?");
+        $stmt->execute([$planId]);
+        $plan = $stmt->fetch();
+        if (!$plan) return $result;
+
+        $settings = get_notification_settings();
+
+        // Collect recipients: Teacher + All DB Admins + Extra Configured Admin Email(s)
+        $rawEmails = [];
+        if (!empty($plan['teacher_email'])) {
+            $rawEmails[] = $plan['teacher_email'];
+        }
+        $adminStmt = $pdo->query("SELECT email FROM users WHERE role = 'admin' AND email IS NOT NULL AND email != ''");
+        if ($adminStmt) {
+            foreach ($adminStmt->fetchAll() as $adm) {
+                if (!empty($adm['email'])) $rawEmails[] = $adm['email'];
+            }
+        }
+        if (!empty($settings['admin_email'])) {
+            foreach (preg_split('/[,;\s]+/', $settings['admin_email']) as $extra) {
+                if (!empty($extra)) $rawEmails[] = $extra;
+            }
+        }
+
+        $recipientsMap = [];
+        foreach ($rawEmails as $em) {
+            $emClean = strtolower(trim((string)$em));
+            if (filter_var($emClean, FILTER_VALIDATE_EMAIL)) {
+                $recipientsMap[$emClean] = $emClean;
+            }
+        }
+        $recipients = array_values($recipientsMap);
+        $result['emails_targeted'] = $recipients;
+
+        $teacherName = $plan['teacher_name'] ?? 'ครูผู้สอน';
+        $teacherDept = $plan['teacher_department'] ?? '-';
+        $subjectCode = $plan['subject_code'] ?? '-';
+        $subjectName = $plan['subject_name'] ?? '-';
+        $gradeLevel = $plan['grade_level'] ?? '-';
+        $reasonText = trim((string)$feedback) ?: 'ส่งกลับเพื่อแก้ไขปรับปรุงเพิ่มเติม';
+        $revName = trim((string)$reviewerName) ?: 'ผู้ตรวจพิจารณา';
+        $revRole = trim((string)$reviewerRole) ?: '';
+        $revDisplay = $revRole ? "{$revName} ({$revRole})" : $revName;
+        $roundLabel = intval($roundNumber) === 2 ? 'ครั้งที่ 2' : 'ครั้งที่ 1';
+        $timeNow = date('d/m/Y H:i') . ' น.';
+
+        // Build Email HTML
+        $emailSubject = "[แจ้งเตือนตีกลับแผนการสอน] {$subjectCode} - {$subjectName} ({$teacherName})";
+        $h = function($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+
+        $emailHtml = '
+<!DOCTYPE html>
+<html lang="th"><head><meta charset="UTF-8"></head>
+<body style="font-family: \'Prompt\', Tahoma, sans-serif; background:#f8fafc; margin:0; padding:20px; color:#1e293b;">
+  <div style="max-width:600px; margin:0 auto; background:#ffffff; border-radius:14px; border:1px solid #e2e8f0; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.05);">
+    <div style="background:linear-gradient(135deg,#dc2626,#b91c1c); color:#ffffff; padding:20px 24px;">
+      <h2 style="margin:0; font-size:18px;">⚠️ แจ้งเตือนการตีกลับแผนการสอน (' . $h($roundLabel) . ')</h2>
+      <div style="font-size:13px; opacity:0.9; margin-top:4px;">ระบบส่งแผนการสอนออนไลน์ • โรงเรียนสระหลวงพิทยาคม</div>
+    </div>
+    <div style="padding:22px 24px; font-size:14px; line-height:1.6;">
+      <p style="margin-top:0;">เรียน <strong>' . $h($teacherName) . '</strong> และ <strong>ผู้ดูแลระบบ (Admin)</strong></p>
+      <p>มีรายการแผนการสอนถูก <strong>ตีกลับให้แก้ไขปรับปรุง</strong> โดยมีรายละเอียดดังนี้:</p>
+      <table style="width:100%; border-collapse:collapse; margin:12px 0; font-size:13.5px;">
+        <tr><td style="padding:6px 0; color:#64748b; width:140px;">รายวิชา:</td><td style="padding:6px 0; font-weight:600;">' . $h($subjectCode) . ' - ' . $h($subjectName) . '</td></tr>
+        <tr><td style="padding:6px 0; color:#64748b;">ระดับชั้น:</td><td style="padding:6px 0;">' . $h($gradeLevel) . '</td></tr>
+        <tr><td style="padding:6px 0; color:#64748b;">ครูผู้สอน:</td><td style="padding:6px 0;">' . $h($teacherName) . ' (' . $h($teacherDept) . ')</td></tr>
+        <tr><td style="padding:6px 0; color:#64748b;">ผู้ตรวจที่ตีกลับ:</td><td style="padding:6px 0;">' . $h($revDisplay) . '</td></tr>
+        <tr><td style="padding:6px 0; color:#64748b;">วัน-เวลา:</td><td style="padding:6px 0;">' . $h($timeNow) . '</td></tr>
+      </table>
+      <div style="background:#fef2f2; border-left:4px solid #dc2626; border-radius:8px; padding:14px 16px; margin:16px 0;">
+        <div style="font-weight:700; color:#991b1b; margin-bottom:4px;">📌 สาเหตุที่ตีกลับ / ข้อเสนอแนะให้แก้ไข:</div>
+        <div style="color:#7f1d1d;">' . nl2br($h($reasonText)) . '</div>
+      </div>
+      <p style="font-size:13px; color:#64748b; margin-bottom:0;">
+        กรุณาเข้าสู่ระบบส่งแผนการสอน ไปที่เมนู <strong>"สถานะของฉัน"</strong> เพื่อตรวจสอบรายละเอียดและกดปุ่ม <strong>"แก้ไข / ส่งฉบับปรับปรุง"</strong>
+      </p>
+    </div>
+  </div>
+</body></html>';
+
+        if (!empty($recipients)) {
+            if (!empty($settings['smtp_user']) && !empty($settings['smtp_pass'])) {
+                $smtpRes = send_smtp_gmail($settings['smtp_user'], $settings['smtp_pass'], $recipients, $emailSubject, $emailHtml);
+                $result['email_method'] = 'gmail_smtp';
+                $result['email_sent'] = $smtpRes['success'];
+                $result['email_error'] = $smtpRes['error'];
+            } else {
+                $encodedSub = '=?UTF-8?B?' . base64_encode($emailSubject) . '?=';
+                $fromEmail = $settings['smtp_user'] ?: ('noreply@' . ($_SERVER['HTTP_HOST'] ?? 'school.local'));
+                $mailHeaders = "MIME-Version: 1.0\r\nContent-type: text/html; charset=UTF-8\r\nFrom: ระบบส่งแผนการสอน <{$fromEmail}>\r\n";
+                $anySent = false;
+                foreach ($recipients as $rcpt) {
+                    if (@mail($rcpt, $encodedSub, $emailHtml, $mailHeaders)) {
+                        $anySent = true;
+                    }
+                }
+                $result['email_method'] = 'php_mail';
+                $result['email_sent'] = $anySent;
+                if (!$anySent) {
+                    $result['email_error'] = 'ยังไม่ได้ตั้งค่า Gmail SMTP (หรือโฮสต์ปิด PHP mail())';
+                }
+            }
+        }
+
+        // Send Telegram Bot notification if configured
+        if (!empty($settings['telegram_bot_token']) && !empty($settings['telegram_chat_id'])) {
+            $tgMsg = "⚠️ <b>แจ้งเตือนตีกลับแผนการสอน ({$h($roundLabel)})</b>\n"
+                   . "━━━━━━━━━━━━━━━━\n"
+                   . "📘 <b>วิชา:</b> {$h($subjectCode)} - {$h($subjectName)}\n"
+                   . "👩‍🏫 <b>ครูผู้สอน:</b> {$h($teacherName)}\n"
+                   . "🏫 <b>กลุ่มสาระฯ:</b> {$h($teacherDept)}\n"
+                   . "🔍 <b>ผู้ตีกลับ:</b> {$h($revDisplay)}\n"
+                   . "📌 <b>สาเหตุที่ตีกลับ:</b>\n<blockquote>{$h($reasonText)}</blockquote>\n"
+                   . "🕒 <i>{$h($timeNow)}</i>";
+            $tgRes = send_telegram_alert($settings['telegram_bot_token'], $settings['telegram_chat_id'], $tgMsg);
+            $result['telegram_sent'] = $tgRes['success'];
+            $result['telegram_error'] = $tgRes['error'];
+        }
+    } catch (Exception $e) {
+        $result['email_error'] = $e->getMessage();
+    }
+
+    return $result;
 }
 
 // Timeline Helper (5 Approval Tiers)
@@ -237,13 +810,13 @@ function create_plan_snapshot($pdo, $planId, $reason = 'ก่อนแก้ไ
 
     // Create a preserved backup copy of local file if exists
     $backupLocalPath = $p['local_file_path'];
-    $sourceFile = $p['stamped_file_path'] ?: $p['local_file_path'];
+    $sourceFile = !empty($p['stamped_file_path']) ? $p['stamped_file_path'] : ($p['local_file_path'] ?? '');
     if (!empty($sourceFile)) {
-        $realFile = __DIR__ . '/../../' . ltrim($sourceFile, '/');
-        if (file_exists($realFile) && is_file($realFile)) {
+        $realFile = find_existing_local_pdf($sourceFile);
+        if ($realFile) {
             $ext = pathinfo($realFile, PATHINFO_EXTENSION) ?: 'pdf';
             $backupFilename = 'plan_backup_v' . $nextVer . '_' . time() . '_' . substr(gen_uuid(), 0, 6) . '.' . $ext;
-            $backupDir = dirname($realFile);
+            $backupDir = get_upload_dir();
             $backupFullPath = $backupDir . '/' . $backupFilename;
             if (@copy($realFile, $backupFullPath)) {
                 $backupLocalPath = 'data/uploads/' . $backupFilename;
@@ -673,12 +1246,8 @@ if ($method === 'POST' && $path === '/plans/submit') {
         $newDriveLink = $existingPlan['google_drive_view_link'] ?? null;
         if (isset($_FILES['pdf_file']) && $_FILES['pdf_file']['error'] === UPLOAD_ERR_OK) {
             $file = $_FILES['pdf_file'];
-            $uploadDir = __DIR__ . '/../../data/uploads';
-            ensure_dir($uploadDir);
-
             $uniqueFileName = 'plan_' . time() . '_' . substr(gen_uuid(), 0, 8) . '.pdf';
-            $destPath = $uploadDir . '/' . $uniqueFileName;
-            move_uploaded_file($file['tmp_name'], $destPath);
+            $destPath = save_uploaded_pdf_file($file['tmp_name'], $uniqueFileName);
             $newLocalPath = 'data/uploads/' . $uniqueFileName;
 
             $oldDriveIdR2 = $existingPlan['google_drive_file_id'] ?? null;
@@ -742,9 +1311,6 @@ if ($method === 'POST' && $path === '/plans/submit') {
     }
 
     // File handling
-    $uploadDir = __DIR__ . '/../../data/uploads';
-    ensure_dir($uploadDir);
-
     $originalName = '';
     $fileSize = 0;
     $localFilePath = '';
@@ -760,8 +1326,7 @@ if ($method === 'POST' && $path === '/plans/submit') {
         }
 
         $uniqueFileName = 'plan_' . time() . '_' . substr(gen_uuid(), 0, 8) . '.pdf';
-        $destPath = $uploadDir . '/' . $uniqueFileName;
-        move_uploaded_file($file['tmp_name'], $destPath);
+        $destPath = save_uploaded_pdf_file($file['tmp_name'], $uniqueFileName);
         $localFilePath = 'data/uploads/' . $uniqueFileName;
     } else {
         json_resp(['success' => false, 'message' => 'กรุณาแนบไฟล์แผนการสอน (PDF)'], 400);
@@ -866,12 +1431,9 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
         $file = $_FILES['pdf_file'];
         $originalName = $file['name'];
         $fileSize = $file['size'];
-        $uploadDir = __DIR__ . '/../../data/uploads';
-        ensure_dir($uploadDir);
 
         $uniqueFileName = 'plan_' . time() . '_' . substr(gen_uuid(), 0, 8) . '.pdf';
-        $destPath = $uploadDir . '/' . $uniqueFileName;
-        move_uploaded_file($file['tmp_name'], $destPath);
+        $destPath = save_uploaded_pdf_file($file['tmp_name'], $uniqueFileName);
         $localFilePath = 'data/uploads/' . $uniqueFileName;
 
         // Old local file is safely preserved in snapshot (plan_backup_v...)
@@ -880,12 +1442,10 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
         $oldDriveId = $existing['google_drive_file_id'];
 
         if (!empty($oldLocal) && $oldLocal !== $localFilePath) {
-            $f1 = __DIR__ . '/../../' . ltrim($oldLocal, '/');
-            if (file_exists($f1) && is_file($f1)) @unlink($f1);
+            delete_local_pdf_if_exists($oldLocal);
         }
         if (!empty($oldStamped) && $oldStamped !== $localFilePath && $oldStamped !== $oldLocal) {
-            $f2 = __DIR__ . '/../../' . ltrim($oldStamped, '/');
-            if (file_exists($f2) && is_file($f2)) @unlink($f2);
+            delete_local_pdf_if_exists($oldStamped);
         }
         // Upload new file to Google Drive FIRST before deleting old Drive file
         try {
@@ -998,10 +1558,7 @@ if ($method === 'DELETE' && preg_match('#^/(?:admin/)?plans/([^/]+)$#', $path, $
     $localFiles = array_filter([$plan['local_file_path'] ?? null, $plan['stamped_file_path'] ?? null]);
     foreach ($localFiles as $rel) {
         if (!empty($rel)) {
-            $full = __DIR__ . '/../../' . ltrim($rel, '/');
-            if (file_exists($full) && is_file($full)) {
-                @unlink($full);
-            }
+            delete_local_pdf_if_exists($rel);
         }
     }
 
@@ -1041,9 +1598,9 @@ if ($method === 'POST' && preg_match('#^/(?:admin/)?plans/([^/]+)/sync-drive$#',
             'fileId' => $plan['google_drive_file_id']
         ]);
     } else {
-        $relPath = $plan['stamped_file_path'] ?: ($plan['local_file_path'] ?? '');
-        $fullPath = $relPath ? (__DIR__ . '/../../' . ltrim($relPath, '/')) : '';
-        $fileExists = $fullPath && file_exists($fullPath);
+        $relPath = !empty($plan['stamped_file_path']) ? $plan['stamped_file_path'] : ($plan['local_file_path'] ?? '');
+        $fullPath = find_existing_local_pdf($relPath);
+        $fileExists = !empty($fullPath);
         json_resp([
             'success' => false,
             'message' => $fileExists 
@@ -1170,17 +1727,12 @@ if ($method === 'POST' && preg_match('#^/plans/([^/]+)/submit-round-2$#', $path,
 
     if (isset($_FILES['pdf_file']) && $_FILES['pdf_file']['error'] === UPLOAD_ERR_OK) {
         $file = $_FILES['pdf_file'];
-        $uploadDir = __DIR__ . '/../../data/uploads';
-        ensure_dir($uploadDir);
-
         $uniqueFileName = 'plan_' . time() . '_' . substr(gen_uuid(), 0, 8) . '.pdf';
-        $destPath = $uploadDir . '/' . $uniqueFileName;
-        move_uploaded_file($file['tmp_name'], $destPath);
+        $destPath = save_uploaded_pdf_file($file['tmp_name'], $uniqueFileName);
         $newLocalPath = 'data/uploads/' . $uniqueFileName;
 
         if (!empty($p['local_file_path']) && $p['local_file_path'] !== $newLocalPath) {
-            $f1 = __DIR__ . '/../../' . ltrim($p['local_file_path'], '/');
-            if (file_exists($f1) && is_file($f1)) @unlink($f1);
+            delete_local_pdf_if_exists($p['local_file_path']);
         }
         $oldDriveIdR2 = $p['google_drive_file_id'] ?? null;
 
@@ -1413,12 +1965,8 @@ if ($method === 'POST' && preg_match('#^/admin/plans/([^/]+)/step-review$#', $pa
     // If an updated stamped PDF was attached by client-side PDFLib
     if (isset($_FILES['pdf_file']) && $_FILES['pdf_file']['error'] === UPLOAD_ERR_OK) {
         $file = $_FILES['pdf_file'];
-        $uploadDir = __DIR__ . '/../../data/uploads';
-        ensure_dir($uploadDir);
-
         $uniqueFileName = 'plan_' . time() . '_' . substr(gen_uuid(), 0, 8) . '.pdf';
-        $destPath = $uploadDir . '/' . $uniqueFileName;
-        move_uploaded_file($file['tmp_name'], $destPath);
+        $destPath = save_uploaded_pdf_file($file['tmp_name'], $uniqueFileName);
         $newLocalPath = 'data/uploads/' . $uniqueFileName;
 
         // Fetch plan details for Google Drive sync & file cleanup
@@ -1435,12 +1983,10 @@ if ($method === 'POST' && preg_match('#^/admin/plans/([^/]+)/step-review$#', $pa
 
         // 1. Delete previous local files so server storage does not accumulate old versions
         if (!empty($oldLocalPath) && $oldLocalPath !== $newLocalPath) {
-            $f1 = __DIR__ . '/../../' . ltrim($oldLocalPath, '/');
-            if (file_exists($f1) && is_file($f1)) @unlink($f1);
+            delete_local_pdf_if_exists($oldLocalPath);
         }
         if (!empty($oldStampedPath) && $oldStampedPath !== $newLocalPath && $oldStampedPath !== $oldLocalPath) {
-            $f2 = __DIR__ . '/../../' . ltrim($oldStampedPath, '/');
-            if (file_exists($f2) && is_file($f2)) @unlink($f2);
+            delete_local_pdf_if_exists($oldStampedPath);
         }
 
         // 2. Upload new stamped PDF to Google Drive FIRST, then delete old file only after new upload succeeds
@@ -1548,7 +2094,21 @@ if ($method === 'POST' && preg_match('#^/admin/plans/([^/]+)/step-review$#', $pa
             $updPlan->execute([$feedback, $reviewerName, $planId]);
         }
 
-        json_resp(['success' => true, 'message' => 'ส่งกลับแผนการสอนเพื่อแก้ไขปรับปรุงเรียบร้อย']);
+        $notifyInfo = send_revision_notifications(
+            $pdo,
+            $planId,
+            $feedback ?: 'ส่งกลับเพื่อแก้ไข',
+            $reviewerName,
+            $reviewerRole,
+            $roundNumber
+        );
+
+        json_resp([
+            'success' => true,
+            'message' => 'ส่งกลับแผนการสอนเพื่อแก้ไขปรับปรุงเรียบร้อย',
+            'reason' => $feedback ?: 'ส่งกลับเพื่อแก้ไข',
+            'notify' => $notifyInfo
+        ]);
     }
 }
 
@@ -1792,8 +2352,8 @@ function getGoogleCredentials() {
         __DIR__ . '/credentials/service-account.json'
     ];
     foreach ($candidates as $p) {
-        if (file_exists($p)) {
-            $json = json_decode(file_get_contents($p), true);
+        if (@file_exists($p)) {
+            $json = json_decode(@file_get_contents($p), true);
             if ($json && !empty($json['client_email']) && !empty($json['private_key'])) {
                 return $json;
             }
@@ -1961,8 +2521,8 @@ function deleteGoogleDriveFile($fileId) {
     try {
         $envPath = __DIR__ . '/../../.env';
         $webAppUrl = 'https://script.google.com/macros/s/AKfycbwj0MbEaIonkYhTbiI0HbVV1SgzDU4GqtrVwyBI0Eld5MgcoORD1040myQX13djqwLH/exec';
-        if (file_exists($envPath)) {
-            $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (@file_exists($envPath)) {
+            $lines = @file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
             foreach ($lines as $line) {
                 if (strpos(trim($line), 'GOOGLE_SCRIPT_WEBAPP_URL=') === 0) {
                     $val = trim(substr(trim($line), strlen('GOOGLE_SCRIPT_WEBAPP_URL=')));
@@ -2000,8 +2560,8 @@ function uploadViaGoogleScript($filePath, $fileName, $department, $teacherName, 
     $envPath = __DIR__ . '/../../.env';
     $webAppUrl = 'https://script.google.com/macros/s/AKfycbwj0MbEaIonkYhTbiI0HbVV1SgzDU4GqtrVwyBI0Eld5MgcoORD1040myQX13djqwLH/exec';
 
-    if (file_exists($envPath)) {
-        $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (@file_exists($envPath)) {
+        $lines = @file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         foreach ($lines as $line) {
             if (strpos(trim($line), 'GOOGLE_SCRIPT_WEBAPP_URL=') === 0) {
                 $val = trim(substr(trim($line), strlen('GOOGLE_SCRIPT_WEBAPP_URL=')));
@@ -2011,7 +2571,7 @@ function uploadViaGoogleScript($filePath, $fileName, $department, $teacherName, 
         }
     }
 
-    if (!$webAppUrl || !file_exists($filePath)) return null;
+    if (!$webAppUrl || !@file_exists($filePath)) return null;
 
     $fileData = @file_get_contents($filePath);
     if ($fileData === false) return null;
@@ -2106,11 +2666,11 @@ function syncPlanToGoogleDriveIfMissing($pdo, &$plan) {
     if (!empty($plan['google_drive_view_link']) && strpos($plan['google_drive_file_id'] ?? '', 'mock_') !== 0) {
         return false;
     }
-    $relPath = $plan['stamped_file_path'] ?: ($plan['local_file_path'] ?? '');
+    $relPath = !empty($plan['stamped_file_path']) ? $plan['stamped_file_path'] : ($plan['local_file_path'] ?? '');
     if (empty($relPath)) return false;
 
-    $fullPath = __DIR__ . '/../../' . ltrim($relPath, '/');
-    if (!file_exists($fullPath) || !is_file($fullPath)) return false;
+    $fullPath = find_existing_local_pdf($relPath);
+    if (!$fullPath) return false;
 
     $origName = $plan['file_original_name'] ?: ('แผนการสอน_' . ($plan['subject_code'] ?? 'PDF') . '.pdf');
     $dept = $plan['teacher_department'] ?: 'กลุ่มสาระทั่วไป';
@@ -2240,6 +2800,132 @@ function uploadFileToGoogleDrive($token, $filePath, $fileName, $targetFolderId =
     return null;
 }
 
+
+// 20.5 Notification Settings & Test Endpoints (Gmail & Telegram)
+if ($method === 'GET' && $path === '/admin/notifications/settings') {
+    $s = get_notification_settings();
+    $adminEmails = [];
+    try {
+        $admStmt = $pdo->query("SELECT name, email FROM users WHERE role = 'admin' AND email IS NOT NULL AND email != ''");
+        if ($admStmt) {
+            $adminEmails = $admStmt->fetchAll();
+        }
+    } catch (Exception $e) {}
+
+    json_resp([
+        'success' => true,
+        'data' => [
+            'admin_email' => $s['admin_email'],
+            'smtp_user' => $s['smtp_user'],
+            'has_smtp_pass' => !empty($s['smtp_pass']),
+            'smtp_pass_masked' => !empty($s['smtp_pass']) ? '••••••••' : '',
+            'telegram_bot_token' => $s['telegram_bot_token'],
+            'telegram_chat_id' => $s['telegram_chat_id'],
+            'admin_users' => $adminEmails
+        ]
+    ]);
+}
+
+if ($method === 'POST' && $path === '/admin/notifications/settings') {
+    $b = get_json_body();
+    $current = get_notification_settings();
+    $submittedPass = isset($b['smtp_pass']) ? trim((string)$b['smtp_pass']) : '';
+    $newPass = ($submittedPass === '••••••••') ? $current['smtp_pass'] : $submittedPass;
+
+    $newSettings = [
+        'admin_email' => trim((string)($b['admin_email'] ?? $current['admin_email'])),
+        'smtp_user' => trim((string)($b['smtp_user'] ?? $current['smtp_user'])),
+        'smtp_pass' => $newPass,
+        'telegram_bot_token' => trim((string)($b['telegram_bot_token'] ?? $current['telegram_bot_token'])),
+        'telegram_chat_id' => trim((string)($b['telegram_chat_id'] ?? $current['telegram_chat_id']))
+    ];
+
+    if (save_notification_settings($newSettings)) {
+        json_resp(['success' => true, 'message' => 'บันทึกการตั้งค่าแจ้งเตือน Gmail และ Telegram เรียบร้อยแล้ว']);
+    } else {
+        json_resp(['success' => false, 'message' => 'ไม่สามารถเขียนไฟล์ตั้งค่าได้ (ตรวจสอบสิทธิ์โฟลเดอร์ uploads)'], 500);
+    }
+}
+
+if ($method === 'POST' && $path === '/admin/notifications/test') {
+    $b = get_json_body();
+    $current = get_notification_settings();
+    $submittedPass = isset($b['smtp_pass']) ? trim((string)$b['smtp_pass']) : '';
+    $testSettings = [
+        'admin_email' => trim((string)($b['admin_email'] ?? $current['admin_email'])),
+        'smtp_user' => trim((string)($b['smtp_user'] ?? $current['smtp_user'])),
+        'smtp_pass' => ($submittedPass === '••••••••' || $submittedPass === '') ? $current['smtp_pass'] : $submittedPass,
+        'telegram_bot_token' => trim((string)($b['telegram_bot_token'] ?? $current['telegram_bot_token'])),
+        'telegram_chat_id' => trim((string)($b['telegram_chat_id'] ?? $current['telegram_chat_id']))
+    ];
+
+    $rawEmails = [];
+    try {
+        $admStmt = $pdo->query("SELECT email FROM users WHERE role = 'admin' AND email IS NOT NULL AND email != ''");
+        if ($admStmt) {
+            foreach ($admStmt->fetchAll() as $adm) {
+                if (!empty($adm['email'])) $rawEmails[] = $adm['email'];
+            }
+        }
+    } catch (Exception $e) {}
+    if (!empty($testSettings['admin_email'])) {
+        foreach (preg_split('/[,;\s]+/', $testSettings['admin_email']) as $extra) {
+            if (!empty($extra)) $rawEmails[] = $extra;
+        }
+    }
+    $recipients = [];
+    foreach ($rawEmails as $em) {
+        $emClean = strtolower(trim((string)$em));
+        if (filter_var($emClean, FILTER_VALIDATE_EMAIL)) {
+            $recipients[$emClean] = $emClean;
+        }
+    }
+    $recipients = array_values($recipients);
+
+    $emailRes = ['success' => false, 'error' => 'ยังไม่มีอีเมลปลายทางของ Admin', 'method' => 'none'];
+    $testSubject = '[ทดสอบระบบแจ้งเตือน] การตีกลับแผนการสอน • โรงเรียนสระหลวงพิทยาคม';
+    $testHtml = '<div style="font-family:Tahoma,sans-serif;padding:20px;border:1px solid #e2e8f0;border-radius:12px;">'
+              . '<h3 style="color:#dc2626;margin-top:0;">🔔 ทดสอบการแจ้งเตือนตีกลับแผนการสอน</h3>'
+              . '<p>ระบบส่งการแจ้งเตือนผ่านอีเมลทำงานปกติแล้ว (Admin และครูผู้โดนตีกลับจะได้รับอีเมลรูปแบบนี้ทุกครั้งเมื่อมีการตีกลับแผน)</p>'
+              . '<div style="background:#fef2f2;padding:12px;border-left:4px solid #dc2626;"><strong>ตัวอย่างสาเหตุที่ตีกลับ:</strong> กรุณาเพิ่มเติมใบงานท้ายแผนการเรียนรู้</div>'
+              . '</div>';
+
+    if (!empty($recipients)) {
+        if (!empty($testSettings['smtp_user']) && !empty($testSettings['smtp_pass'])) {
+            $emailRes = send_smtp_gmail($testSettings['smtp_user'], $testSettings['smtp_pass'], $recipients, $testSubject, $testHtml);
+            $emailRes['method'] = 'gmail_smtp';
+        } else {
+            $encodedSub = '=?UTF-8?B?' . base64_encode($testSubject) . '?=';
+            $fromEmail = $testSettings['smtp_user'] ?: ('noreply@' . ($_SERVER['HTTP_HOST'] ?? 'school.local'));
+            $mailHeaders = "MIME-Version: 1.0\r\nContent-type: text/html; charset=UTF-8\r\nFrom: ระบบส่งแผนการสอน <{$fromEmail}>\r\n";
+            $anySent = false;
+            foreach ($recipients as $rcpt) {
+                if (@mail($rcpt, $encodedSub, $testHtml, $mailHeaders)) $anySent = true;
+            }
+            $emailRes = [
+                'success' => $anySent,
+                'method' => 'php_mail',
+                'error' => $anySent ? null : 'กรุณากรอก Gmail ผู้ส่ง และ รหัสผ่านแอป (App Password)'
+            ];
+        }
+    }
+
+    $tgRes = ['success' => false, 'error' => 'ยังไม่ได้ระบุ Telegram Bot Token / Chat ID'];
+    if (!empty($testSettings['telegram_bot_token']) && !empty($testSettings['telegram_chat_id'])) {
+        $tgTestMsg = "🔔 <b>ทดสอบแจ้งเตือนตีกลับแผนการสอน</b>\n"
+                   . "━━━━━━━━━━━━━━━━\n"
+                   . "✅ เชื่อมต่อบอท Telegram สำเร็จ!\n"
+                   . "📌 <b>ตัวอย่างสาเหตุ:</b>\n<blockquote>กรุณาเพิ่มเติมจุดประสงค์การเรียนรู้และใบงาน</blockquote>";
+        $tgRes = send_telegram_alert($testSettings['telegram_bot_token'], $testSettings['telegram_chat_id'], $tgTestMsg);
+    }
+
+    json_resp([
+        'success' => ($emailRes['success'] || $tgRes['success']),
+        'recipients' => $recipients,
+        'email' => $emailRes,
+        'telegram' => $tgRes
+    ]);
+}
 
 // 21. GET /api/admin/drive/status
 if ($method === 'GET' && $path === '/admin/drive/status') {
@@ -2373,7 +3059,7 @@ if ($method === 'GET' && $path === '/templates/download') {
         __DIR__ . '/../../test/เทมเพลต_นท1_นท2 (1).docx'
     ];
     foreach ($candidates as $tplPath) {
-        if (file_exists($tplPath)) {
+        if (@file_exists($tplPath)) {
             $dlName = 'เทมเพลต_นท1_นท2.docx';
             header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             header('Content-Disposition: attachment; filename="template_nt1_nt2.docx"; filename*=UTF-8\'\'' . rawurlencode($dlName));
@@ -2397,10 +3083,9 @@ if ($method === 'GET' && preg_match('#^/files/download/([^/]+)$#', $path, $match
         die('ไม่พบข้อมูลแผนการสอน');
     }
 
-    $filePath = $plan['stamped_file_path'] ?? $plan['local_file_path'];
-    $fullPath = __DIR__ . '/../../' . ltrim($filePath, '/');
+    $fullPath = resolve_plan_pdf_path($plan);
 
-    if (!$filePath || !file_exists($fullPath)) {
+    if (!$fullPath || !@file_exists($fullPath)) {
         if (!empty($plan['google_drive_download_link'])) {
             header('Location: ' . $plan['google_drive_download_link']);
             exit;
@@ -2431,16 +3116,23 @@ if ($method === 'GET' && preg_match('#^/files/view-stamped/([^/]+)$#', $path, $m
         die('ไม่พบข้อมูลแผนการสอน');
     }
 
-    $filePath = $plan['stamped_file_path'] ?? $plan['local_file_path'];
-    $fullPath = __DIR__ . '/../../' . ltrim($filePath, '/');
+    $fullPath = resolve_plan_pdf_path($plan);
 
-    if (!$filePath || !file_exists($fullPath)) {
+    if (!$fullPath || !@file_exists($fullPath)) {
         if (!empty($plan['google_drive_view_link'])) {
-            header('Location: ' . $plan['google_drive_view_link']);
+            $viewUrl = $plan['google_drive_view_link'];
+            // Convert /view to /preview so it renders cleanly inside iframes as well
+            $previewUrl = preg_replace('#/view(\?.*)?$#', '/preview', $viewUrl);
+            header('Location: ' . $previewUrl);
             exit;
         }
-        http_response_code(404);
-        die('ไม่พบไฟล์เอกสารบนเซิร์ฟเวอร์');
+        header('Content-Type: text/html; charset=utf-8');
+        http_response_code(200);
+        echo '<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><title>ไม่พบไฟล์ PDF</title>';
+        echo '<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;600&display=swap" rel="stylesheet">';
+        echo '<style>body{font-family:"Prompt",sans-serif;background:#f8fafc;color:#334155;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;padding:20px;box-sizing:border-box;text-align:center;}.box{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px 24px;max-width:460px;box-shadow:0 4px 15px rgba(0,0,0,0.05);}h3{color:#dc2626;margin:0 0 10px;font-size:1.15rem;}p{font-size:0.9rem;line-height:1.6;color:#64748b;margin:0;}</style></head>';
+        echo '<body><div class="box"><h3>⚠️ ไม่พบไฟล์ PDF บนเซิร์ฟเวอร์</h3><p>แผนการสอนรายวิชานี้ถูกส่งเข้ามาก่อนที่จะเปิดสิทธิ์โฟลเดอร์จัดเก็บไฟล์บนเซิร์ฟเวอร์<br><br><strong>วิธีแก้ไข:</strong> กรุณาให้ครูผู้สอนกดปุ่ม <strong>"แก้ไข"</strong> ในหน้าส่งแผน หรือหน้าสถานะของฉัน แล้วแนบไฟล์ PDF ส่งใหม่อีกครั้ง ระบบจะบันทึกไฟล์พร้อมซิงค์ขึ้น Google Drive ทันทีครับ</p></div></body></html>';
+        exit;
     }
 
     header('Content-Type: application/pdf');

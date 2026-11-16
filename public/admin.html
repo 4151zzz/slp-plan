@@ -1300,6 +1300,22 @@
             <i class="fa-solid fa-arrow-up-right-from-square"></i> เปิดหน้าหลักระบบ
           </a>
         </div>
+
+        <div class="tool-card">
+          <div>
+            <div class="tool-icon purple"><i class="fa-solid fa-bell"></i></div>
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
+              ตั้งค่าแจ้งเตือน Gmail &amp; Telegram
+            </h3>
+            <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 16px;">
+              กำหนดค่าการส่งอีเมลแจ้งเตือนผ่าน Gmail (ถึง Admin &amp; ครูผู้โดนตีกลับ) และเชื่อมต่อแชทบอท Telegram เมื่อมีการตีกลับแผน
+            </p>
+          </div>
+          <button type="button" class="btn btn-outline" onclick="openNotificationSettingsModal()"
+            style="border-radius: var(--radius-full); border-color: #8b5cf6; color: #6d28d9;">
+            <i class="fa-solid fa-sliders"></i> ตั้งค่าการแจ้งเตือน
+          </button>
+        </div>
       </div>
     </section>
 
@@ -2333,7 +2349,15 @@
         if (isApp) {
           statusBadge = '<span class="badge badge-success" style="font-size: 0.78rem; padding: 4px 10px;"><i class="fa-solid fa-check"></i> อนุมัติสมบูรณ์</span>';
         } else if (isRev) {
-          statusBadge = '<span class="badge badge-revision" style="font-size: 0.78rem; padding: 4px 10px;"><i class="fa-solid fa-triangle-exclamation"></i> ส่งกลับแก้ไข</span>';
+          const revReasonPreview = escapeHtml(p.reviewer_feedback || 'คลิกเพื่อดูสาเหตุ');
+          statusBadge = `
+            <button type="button" onclick="showAdminRevisionReason('${p.id}')" class="badge badge-revision" style="font-size: 0.78rem; padding: 4px 10px; border:none; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="คลิกเพื่อดูสาเหตุที่ตีกลับ">
+              <i class="fa-solid fa-triangle-exclamation"></i> ส่งกลับแก้ไข (ดูสาเหตุ)
+            </button>
+            <div style="font-size: 0.72rem; color: #991b1b; margin-top: 4px; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${revReasonPreview}">
+              ${revReasonPreview}
+            </div>
+          `;
         } else {
           statusBadge = '<span class="badge badge-submitted" style="font-size: 0.78rem; padding: 4px 10px;"><i class="fa-solid fa-clock"></i> อยู่ระหว่างตรวจ</span>';
         }
@@ -2343,7 +2367,7 @@
           driveBtn = `<a href="${p.google_drive_view_link}" target="_blank" class="btn btn-sm" style="background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 999px; font-weight: 600; padding: 4px 10px; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px; text-decoration: none;" title="เปิดดูไฟล์บน Google Drive"><i class="fa-brands fa-google-drive"></i> ดูบนไดรฟ์</a>`;
         }
 
-        const viewPdfUrl = `/api/files/view-stamped/${p.id}`;
+        const viewPdfUrl = `${window.API_BASE_URL || '/api'}/files/view-stamped/${p.id}`;
 
         html += `
           <tr style="border-bottom: 1px solid #f1f5f9;">
@@ -3219,6 +3243,150 @@
     function capitalize(str) {
       if (!str) return '';
       return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    function showAdminRevisionReason(planId) {
+      const p = (allAdminPlansData || []).find(x => x.id === planId);
+      if (!p) return;
+      const reason = p.reviewer_feedback || 'ไม่ได้ระบุสาเหตุเพิ่มเติม';
+      const revBy = p.reviewed_by || p.current_reviewer_title || 'ผู้ตรวจพิจารณา';
+      Swal.fire({
+        icon: 'warning',
+        title: '⚠️ สาเหตุที่ถูกตีกลับแผนการสอน',
+        html: `
+          <div style="text-align: left; font-size: 0.9rem; line-height: 1.6; color: #334155;">
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px;">
+              <div><strong>รายวิชา:</strong> <code>${escapeHtml(p.subject_code)}</code> - ${escapeHtml(p.subject_name)}</div>
+              <div><strong>ครูผู้สอน:</strong> ${escapeHtml(p.teacher_name)} (${escapeHtml(p.teacher_email || '-')})</div>
+              <div><strong>ผู้ตรวจที่ตีกลับ:</strong> ${escapeHtml(revBy)}</div>
+            </div>
+            <div style="background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: 10px; padding: 12px 14px;">
+              <div style="font-weight: 700; color: #991b1b; margin-bottom: 4px;">📌 สาเหตุที่ตีกลับ:</div>
+              <div style="color: #7f1d1d; white-space: pre-wrap;">${escapeHtml(reason)}</div>
+            </div>
+          </div>
+        `,
+        confirmButtonColor: '#2563eb',
+        confirmButtonText: 'รับทราบ',
+        width: 520
+      });
+    }
+
+    async function openNotificationSettingsModal() {
+      Swal.fire({
+        title: 'กำลังโหลดการตั้งค่า...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      let current = {};
+      try {
+        const res = await fetch('/api/admin/notifications/settings');
+        const json = await res.json();
+        if (json.success && json.data) current = json.data;
+      } catch (e) {}
+
+      const adminListHtml = Array.isArray(current.admin_users) && current.admin_users.length > 0
+        ? current.admin_users.map(a => `<code>${escapeHtml(a.email)}</code>`).join(', ')
+        : '<em>ใช้จากข้อมูลผู้ใช้งานบทบาท Admin</em>';
+
+      const modalResult = await Swal.fire({
+        title: '<i class="fa-solid fa-bell" style="color: #7c3aed;"></i> ตั้งค่าแจ้งเตือนตีกลับแผน (Gmail & Telegram)',
+        html: `
+          <div style="text-align: left; font-size: 0.84rem; color: #334155; display: flex; flex-direction: column; gap: 12px;">
+            <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 10px 12px;">
+              <div style="font-weight: 700; color: #1e40af; margin-bottom: 4px;"><i class="fa-solid fa-envelope"></i> การส่งแจ้งเตือนผ่าน Gmail</div>
+              <div style="font-size: 0.78rem; color: #475569; margin-bottom: 6px;">อีเมล Admin ในระบบที่จะได้รับแจ้งเตือนอัตโนมัติ: ${adminListHtml}</div>
+              <label style="font-weight: 600; font-size: 0.8rem; display:block; margin-top:6px;">อีเมล Admin เพิ่มเติม (คั่นด้วยจุลภาคได้):</label>
+              <input type="text" id="swalNotifyAdminEmail" class="swal2-input" value="${escapeHtml(current.admin_email || '')}" placeholder="เช่น admin2@school.ac.th" style="margin:4px 0 8px; width:100%; box-sizing:border-box; font-size:0.88rem; height:38px;">
+              <label style="font-weight: 600; font-size: 0.8rem; display:block;">Gmail ผู้ส่ง (สำหรับส่งออกผ่าน SMTP - แนะนำ):</label>
+              <input type="email" id="swalNotifySmtpUser" class="swal2-input" value="${escapeHtml(current.smtp_user || '')}" placeholder="เช่น plan.school@gmail.com" style="margin:4px 0 8px; width:100%; box-sizing:border-box; font-size:0.88rem; height:38px;">
+              <label style="font-weight: 600; font-size: 0.8rem; display:block;">รหัสผ่านแอป Gmail (App Password 16 หลัก):</label>
+              <input type="password" id="swalNotifySmtpPass" class="swal2-input" value="${escapeHtml(current.smtp_pass_masked || '')}" placeholder="ระบุ App Password ของบัญชี Gmail ผู้ส่ง" style="margin:4px 0 0; width:100%; box-sizing:border-box; font-size:0.88rem; height:38px;">
+              <div style="font-size: 0.72rem; color: #64748b; margin-top: 4px;">* สร้างได้ที่ Google Account &gt; ความปลอดภัย &gt; การยืนยันแบบ 2 ขั้นตอน &gt; รหัสผ่านแอป</div>
+            </div>
+
+            <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 10px 12px;">
+              <div style="font-weight: 700; color: #0369a1; margin-bottom: 4px;"><i class="fa-brands fa-telegram"></i> แชทบอท Telegram (ไม่บังคับ)</div>
+              <label style="font-weight: 600; font-size: 0.8rem; display:block;">Telegram Bot Token (จาก @BotFather):</label>
+              <input type="text" id="swalNotifyTgToken" class="swal2-input" value="${escapeHtml(current.telegram_bot_token || '')}" placeholder="เช่น 7123456789:AAFxxxxxx..." style="margin:4px 0 8px; width:100%; box-sizing:border-box; font-size:0.88rem; height:38px;">
+              <label style="font-weight: 600; font-size: 0.8rem; display:block;">Telegram Chat ID (ผู้รับหรือกลุ่มแชท):</label>
+              <input type="text" id="swalNotifyTgChatId" class="swal2-input" value="${escapeHtml(current.telegram_chat_id || '')}" placeholder="เช่น 123456789 หรือ -100xxxxxxxx" style="margin:4px 0 0; width:100%; box-sizing:border-box; font-size:0.88rem; height:38px;">
+            </div>
+          </div>
+        `,
+        width: 560,
+        showDenyButton: true,
+        showCancelButton: true,
+        confirmButtonText: '<i class="fa-solid fa-save"></i> บันทึกการตั้งค่า',
+        denyButtonText: '<i class="fa-solid fa-paper-plane"></i> ทดสอบส่งแจ้งเตือน',
+        cancelButtonText: 'ปิด',
+        confirmButtonColor: '#2563eb',
+        denyButtonColor: '#7c3aed',
+        cancelButtonColor: '#64748b',
+        preConfirm: () => ({
+          admin_email: document.getElementById('swalNotifyAdminEmail').value.trim(),
+          smtp_user: document.getElementById('swalNotifySmtpUser').value.trim(),
+          smtp_pass: document.getElementById('swalNotifySmtpPass').value.trim(),
+          telegram_bot_token: document.getElementById('swalNotifyTgToken').value.trim(),
+          telegram_chat_id: document.getElementById('swalNotifyTgChatId').value.trim()
+        }),
+        preDeny: () => ({
+          admin_email: document.getElementById('swalNotifyAdminEmail').value.trim(),
+          smtp_user: document.getElementById('swalNotifySmtpUser').value.trim(),
+          smtp_pass: document.getElementById('swalNotifySmtpPass').value.trim(),
+          telegram_bot_token: document.getElementById('swalNotifyTgToken').value.trim(),
+          telegram_chat_id: document.getElementById('swalNotifyTgChatId').value.trim()
+        })
+      });
+
+      if (modalResult.isConfirmed && modalResult.value) {
+        try {
+          const saveRes = await fetch('/api/admin/notifications/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(modalResult.value)
+          });
+          const saveJson = await saveRes.json();
+          Swal.fire({
+            icon: saveJson.success ? 'success' : 'error',
+            title: saveJson.success ? 'บันทึกสำเร็จ!' : 'เกิดข้อผิดพลาด',
+            text: saveJson.message,
+            confirmButtonColor: '#2563eb'
+          });
+        } catch (err) {
+          Swal.fire({ icon: 'error', title: 'ข้อผิดพลาดเครือข่าย', text: err.message });
+        }
+      } else if (modalResult.isDenied && modalResult.value) {
+        Swal.fire({ title: 'กำลังทดสอบส่งแจ้งเตือน...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        try {
+          await fetch('/api/admin/notifications/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(modalResult.value)
+          });
+          const testRes = await fetch('/api/admin/notifications/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(modalResult.value)
+          });
+          const tj = await testRes.json();
+          const emailLine = tj.email && tj.email.success
+            ? `✅ Gmail: ส่งสำเร็จ (${(tj.recipients || []).join(', ')})`
+            : `❌ Gmail: ${escapeHtml((tj.email && tj.email.error) || 'ไม่สำเร็จ')}`;
+          const tgLine = tj.telegram && tj.telegram.success
+            ? `✅ Telegram: ส่งข้อความสำเร็จ`
+            : `ℹ️ Telegram: ${escapeHtml((tj.telegram && tj.telegram.error) || 'ไม่ได้ตั้งค่า')}`;
+          Swal.fire({
+            icon: tj.success ? 'success' : 'warning',
+            title: 'ผลการทดสอบส่งแจ้งเตือน',
+            html: `<div style="text-align:left; font-size:0.88rem; line-height:1.7;">${emailLine}<br>${tgLine}</div>`,
+            confirmButtonColor: '#2563eb'
+          });
+        } catch (err) {
+          Swal.fire({ icon: 'error', title: 'ทดสอบล้มเหลว', text: err.message });
+        }
+      }
     }
 
     function escapeHtml(str) {

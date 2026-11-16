@@ -1846,10 +1846,22 @@ async function searchTeacherHistory(isManualClick = true) {
       </div>
     `;
 
+    window._planReasonCache = window._planReasonCache || {};
+    window._shownRevisionAlertIds = window._shownRevisionAlertIds || new Set();
+    let unshownRevisionPlans = [];
+
     json.data.forEach(p => {
+      window._planReasonCache[p.id] = p;
       const driveLink = p.google_drive_view_link 
         ? `<a href="${p.google_drive_view_link}" target="_blank" class="btn-gdrive" title="เปิดดูบน Google Drive"><i class="fa-brands fa-google-drive"></i> เปิดไฟล์บน Google Drive</a>`
         : '';
+
+      const isRev1 = p.submission_status === 'revision_needed';
+      const isRev2 = p.round_2_status === 'revision_needed';
+      const isAnyRev = isRev1 || isRev2;
+      if (isAnyRev && !window._shownRevisionAlertIds.has(p.id)) {
+        unshownRevisionPlans.push(p);
+      }
 
       const canEdit = p.submission_status === 'draft' || p.submission_status === 'revision_needed';
       const editBtn = canEdit 
@@ -1858,10 +1870,10 @@ async function searchTeacherHistory(isManualClick = true) {
 
       // Live Reviewer Status Indicator
       let livePill = '';
-      if (p.submission_status === 'approved') {
+      if (p.submission_status === 'approved' && !isRev2) {
         livePill = `<div class="live-reviewer-pill approved"><i class="fa-solid fa-circle-check"></i> อนุมัติเสร็จสมบูรณ์เรียบร้อยแล้ว</div>`;
-      } else if (p.submission_status === 'revision_needed') {
-        livePill = `<div class="live-reviewer-pill revision"><i class="fa-solid fa-triangle-exclamation"></i> ส่งกลับแก้ไข (${escapeHtml(p.current_reviewer_title || 'ผู้ตรวจ')})</div>`;
+      } else if (isAnyRev) {
+        livePill = `<button type="button" onclick="showRevisionReasonById('${p.id}', true)" class="live-reviewer-pill revision" style="border:none;cursor:pointer;" title="คลิกเพื่อดูสาเหตุที่ตีกลับ"><i class="fa-solid fa-triangle-exclamation"></i> ส่งกลับแก้ไข (${escapeHtml(p.reviewed_by || p.current_reviewer_title || 'ผู้ตรวจ')}) — คลิกดูสาเหตุ</button>`;
       } else {
         livePill = `
           <div class="live-reviewer-pill">
@@ -1870,6 +1882,18 @@ async function searchTeacherHistory(isManualClick = true) {
           </div>
         `;
       }
+
+      // Revision reason banner inside card
+      const revisionReasonBox = isAnyRev ? `
+        <div onclick="showRevisionReasonById('${p.id}', true)" style="cursor:pointer; margin: 10px 0; background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: 10px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div style="font-size: 0.85rem; color: #7f1d1d;">
+            <strong style="color: #991b1b;"><i class="fa-solid fa-circle-exclamation"></i> สาเหตุที่ตีกลับ:</strong>
+            ${escapeHtml(p.reviewer_feedback || 'กรุณาตรวจสอบและแก้ไขปรับปรุงเพิ่มเติม')}
+            ${p.reviewed_by ? `<span style="color:#b91c1c; font-size:0.78rem;"> (โดย ${escapeHtml(p.reviewed_by)})</span>` : ''}
+          </div>
+          <span style="font-size: 0.78rem; color: #dc2626; font-weight: 600; white-space: nowrap;"><i class="fa-solid fa-magnifying-glass"></i> ดูรายละเอียด</span>
+        </div>
+      ` : '';
 
       // Inline Timeline 4-step Grid (Always visible!)
       const timelineHtml = buildInlineTimelineHtml(p.timeline, p.current_stage, p.current_reviewer_title);
@@ -1893,6 +1917,8 @@ async function searchTeacherHistory(isManualClick = true) {
               ${livePill}
             </div>
           </div>
+
+          ${revisionReasonBox}
 
           <!-- DIRECT INLINE TIMELINE STEPPER (ขึ้นของแต่ละคนทันที ไม่ต้องคลิก) -->
           ${timelineHtml}
@@ -1925,10 +1951,57 @@ async function searchTeacherHistory(isManualClick = true) {
 
     resultsArea.innerHTML = html;
 
+    // Auto popup SweetAlert2 notifying teacher of revision reasons if any plan was returned
+    if (unshownRevisionPlans.length > 0 && currentUser && currentUser.email && currentUser.email.toLowerCase() === email.toLowerCase()) {
+      const firstRev = unshownRevisionPlans[0];
+      unshownRevisionPlans.forEach(rp => window._shownRevisionAlertIds.add(rp.id));
+      showRevisionReasonById(firstRev.id, true);
+    }
+
   } catch (err) {
     resultsArea.innerHTML = `<div class="alert-card alert-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล: ${err.message}</div>`;
   }
 }
+
+window.showRevisionReasonById = function(planId, allowEditBtn = false) {
+  const p = (window._planReasonCache && window._planReasonCache[planId])
+    || (window.adminPlansCache && window.adminPlansCache.find(x => x.id === planId));
+  if (!p) return;
+
+  const reason = p.reviewer_feedback || 'กรุณาตรวจสอบความถูกต้องและปรับปรุงแก้ไขเอกสารเพิ่มเติม';
+  const revBy = p.reviewed_by || p.current_reviewer_title || 'ผู้ตรวจพิจารณา';
+  const canEdit = allowEditBtn && (p.submission_status === 'draft' || p.submission_status === 'revision_needed');
+
+  Swal.fire({
+    icon: 'warning',
+    title: '⚠️ สาเหตุที่ถูกตีกลับแผนการสอน',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem; line-height: 1.6; color: #334155;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px;">
+          <div><strong>รายวิชา:</strong> <code>${escapeHtml(p.subject_code)}</code> - ${escapeHtml(p.subject_name)}</div>
+          <div><strong>ครูผู้สอน:</strong> ${escapeHtml(p.teacher_name)} (${escapeHtml(p.teacher_department || '-')})</div>
+          <div><strong>ผู้ตรวจที่ตีกลับ:</strong> ${escapeHtml(revBy)}</div>
+        </div>
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: 10px; padding: 12px 14px;">
+          <div style="font-weight: 700; color: #991b1b; margin-bottom: 4px;">
+            <i class="fa-solid fa-comment-dots"></i> สาเหตุ / ข้อเสนอแนะให้แก้ไข:
+          </div>
+          <div style="color: #7f1d1d; white-space: pre-wrap;">${escapeHtml(reason)}</div>
+        </div>
+      </div>
+    `,
+    showCancelButton: canEdit,
+    confirmButtonText: canEdit ? '<i class="fa-solid fa-pen-to-square"></i> แก้ไขแผนการสอนนี้ทันที' : 'รับทราบ / ปิด',
+    cancelButtonText: 'ปิดไว้ก่อน',
+    confirmButtonColor: canEdit ? '#2563eb' : '#64748b',
+    cancelButtonColor: '#64748b',
+    width: 520
+  }).then((res) => {
+    if (res.isConfirmed && canEdit && typeof loadPlanIntoEditMode === 'function') {
+      loadPlanIntoEditMode(p.id);
+    }
+  });
+};
 
 // -------------------------------------------------------------
 // 8. Academic Reviewer Dashboard (ฝ่ายวิชาการ & ไทม์ไลน์สด)
@@ -2082,8 +2155,10 @@ async function loadAdminPlans() {
       completed: 'อนุมัติเรียบร้อย'
     };
 
+    window._planReasonCache = window._planReasonCache || {};
     let rows = '';
     json.data.forEach(p => {
+      window._planReasonCache[p.id] = p;
       const driveHtml = p.google_drive_view_link 
         ? `<a href="${p.google_drive_view_link}" target="_blank" class="btn-gdrive" title="เปิดดูไฟล์บน Google Drive"><i class="fa-brands fa-google-drive"></i> ดูบนไดรฟ์</a>`
         : `<button type="button" class="btn btn-sm" onclick="syncSinglePlanDrive('${p.id}')" style="background: #fef3c7; color: #b45309; border: 1px solid #fde68a; border-radius: 999px; font-weight: 600; padding: 3px 8px; font-size: 0.74rem; display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="กดเพื่อให้อัปโหลดและซิงค์ไฟล์นี้ขึ้น Google Drive ทันที"><i class="fa-solid fa-arrows-rotate"></i> ซิงค์ขึ้นไดรฟ์</button>`;
@@ -2150,7 +2225,7 @@ async function loadAdminPlans() {
         actionButtonHtml = `<span class="badge badge-approved" style="font-size: 0.8rem; padding: 6px 12px;"><i class="fa-solid fa-circle-check"></i> ผ่านครั้งที่ 1 (รอส่งครั้งที่ 2)</span>`;
       } else if (activeStatus === 'revision_needed') {
         const roundSuffix = activeRound === 2 ? ' (ครั้งที่ 2)' : ' (ครั้งที่ 1)';
-        actionButtonHtml = `<span class="badge badge-revision_needed" style="font-size: 0.8rem; padding: 6px 12px;"><i class="fa-solid fa-rotate-left"></i> ส่งกลับแล้ว${roundSuffix}</span>`;
+        actionButtonHtml = `<button type="button" onclick="showRevisionReasonById('${p.id}', false)" class="badge badge-revision_needed" style="font-size: 0.8rem; padding: 6px 12px; border:none; cursor:pointer;" title="คลิกเพื่อดูสาเหตุที่ตีกลับ"><i class="fa-solid fa-rotate-left"></i> ส่งกลับแล้ว${roundSuffix} (ดูสาเหตุ)</button>`;
       } else if (isUserTurn) {
         const roundLabel = activeRound === 2 ? 'ครั้งที่ 2' : 'ครั้งที่ 1';
         actionButtonHtml = `
@@ -2521,7 +2596,7 @@ async function submitReviewAction(action) {
   const roundEl = document.getElementById('selectedReviewRound');
   const targetRound = roundEl ? (parseInt(roundEl.value, 10) || 1) : 1;
 
-  // If action is 'revision' (ตีกลับให้แก้ไข), ask for confirmation and optional reason
+  // If action is 'revision' (ตีกลับให้แก้ไข), require reason with SweetAlert2 & quick-pick chips
   if (action === 'revision') {
     let initialReason = feedback;
     if (initialReason === 'สามารถนำไปใช้ในการสอนได้') {
@@ -2529,18 +2604,24 @@ async function submitReviewAction(action) {
     }
 
     const result = await Swal.fire({
-      title: 'ยืนยันจะตีกลับให้แก้ไขหรือไม่?',
+      title: '⚠️ ยืนยันการตีกลับแผนการสอน',
       html: `
-        <div style="text-align: left; font-size: 0.9rem; color: #475569; margin-bottom: 12px; line-height: 1.5;">
-          แผนการสอนนี้จะถูกส่งกลับไปยังครูผู้สอนเพื่อแก้ไขปรับปรุง และครูจะสามารถอัปโหลดไฟล์ฉบับแก้ไขส่งเข้ามาใหม่ได้
+        <div style="text-align: left; font-size: 0.88rem; color: #475569; margin-bottom: 10px; line-height: 1.5;">
+          แผนการสอนนี้จะถูกส่งกลับไปยังครูผู้สอน พร้อมส่งแจ้งเตือนไปยัง <strong>Gmail (ผู้โดนตีกลับ &amp; Admin)</strong> และ <strong>Telegram</strong> (หากตั้งค่าไว้)
         </div>
-        <div style="text-align: left; font-weight: 600; font-size: 0.88rem; color: #1e293b; margin-bottom: 6px;">
-          ระบุเหตุผลหรือข้อเสนอแนะในการปรับปรุง (ถ้ามี):
+        <div style="text-align: left; font-weight: 600; font-size: 0.85rem; color: #1e293b; margin-bottom: 6px;">
+          เลือกสาเหตุด่วนหรือพิมพ์ระบุด้านล่าง <span style="color:#dc2626;">*</span>:
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; justify-content: flex-start;">
+          <button type="button" class="swal-reason-chip" data-reason="องค์ประกอบของแผนการจัดการเรียนรู้ไม่ครบถ้วน" style="font-size:0.75rem; padding:4px 10px; border-radius:999px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; cursor:pointer;">+ องค์ประกอบไม่ครบ</button>
+          <button type="button" class="swal-reason-chip" data-reason="จุดประสงค์การเรียนรู้และตัวชี้วัดยังไม่สอดคล้อง" style="font-size:0.75rem; padding:4px 10px; border-radius:999px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; cursor:pointer;">+ ตัวชี้วัดไม่สอดคล้อง</button>
+          <button type="button" class="swal-reason-chip" data-reason="กรุณาแนบใบงาน/แบบประเมินท้ายแผนเพิ่มเติม" style="font-size:0.75rem; padding:4px 10px; border-radius:999px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; cursor:pointer;">+ เพิ่มใบงาน/แบบประเมิน</button>
+          <button type="button" class="swal-reason-chip" data-reason="ข้อมูลหน้าปกหรือการลงนามไม่ถูกต้อง" style="font-size:0.75rem; padding:4px 10px; border-radius:999px; border:1px solid #fecaca; background:#fef2f2; color:#991b1b; cursor:pointer;">+ ข้อมูลหน้าปก/ลายเซ็นไม่ถูกต้อง</button>
         </div>
       `,
       input: 'textarea',
       inputValue: initialReason,
-      inputPlaceholder: 'เช่น เพิ่มเติมจุดประสงค์การเรียนรู้, แนบใบงานประกอบ ฯลฯ (ไม่บังคับ)...',
+      inputPlaceholder: 'กรุณาระบุสาเหตุที่ตีกลับเพื่อให้ครูแก้ไขให้ตรงจุด...',
       inputAttributes: {
         'rows': '3',
         'style': 'font-size: 0.9rem; font-family: inherit;'
@@ -2549,22 +2630,47 @@ async function submitReviewAction(action) {
       showCancelButton: true,
       confirmButtonColor: '#dc2626',
       cancelButtonColor: '#64748b',
-      confirmButtonText: '<i class="fa-solid fa-rotate-left"></i> ยืนยันตีกลับให้แก้ไข',
+      confirmButtonText: '<i class="fa-solid fa-rotate-left"></i> ยืนยันตีกลับและแจ้งเตือน',
       cancelButtonText: 'ยกเลิก',
       reverseButtons: true,
-      focusCancel: true
+      didOpen: () => {
+        const popup = Swal.getPopup();
+        const ta = Swal.getInput();
+        if (popup && ta) {
+          popup.querySelectorAll('.swal-reason-chip').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const r = btn.getAttribute('data-reason') || '';
+              ta.value = ta.value.trim() ? `${ta.value.trim()}\n- ${r}` : r;
+              ta.focus();
+            });
+          });
+        }
+      },
+      inputValidator: (value) => {
+        if (!value || !value.trim()) {
+          return 'กรุณาระบุสาเหตุที่ตีกลับแผนการสอนก่อนยืนยันครับ';
+        }
+      }
     });
 
     if (!result.isConfirmed) {
       return; // Reviewer cancelled the action
     }
 
-    const enteredReason = result.value ? result.value.trim() : '';
-    feedback = enteredReason || 'ส่งกลับเพื่อปรับปรุงแก้ไขเพิ่มเติม';
+    feedback = result.value.trim();
 
     // Update feedback field in modal as well
     const feedbackField = document.getElementById('reviewFeedback');
     if (feedbackField) feedbackField.value = feedback;
+
+    Swal.fire({
+      title: 'กำลังตีกลับและส่งการแจ้งเตือน...',
+      html: 'กำลังอัปเดตสถานะและส่งแจ้งเตือนไปยัง Gmail (ครู &amp; Admin)...',
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
   } else if (action === 'approve') {
     if (!feedback) {
       feedback = 'สามารถนำไปใช้ในการสอนได้';
@@ -2723,10 +2829,29 @@ async function submitReviewAction(action) {
     const json = await res.json();
     if (json.success) {
       const actionText = action === 'approve' ? 'อนุมัติ / เห็นชอบเรียบร้อย' : 'ตีกลับให้ครูแก้ไขเรียบร้อย';
+      let extraHtml = `<span style="font-size: 0.88rem; color: #64748b;">${escapeHtml(json.message || '')}</span>`;
+      if (action === 'revision') {
+        const notify = json.notify || {};
+        const targets = Array.isArray(notify.emails_targeted) ? notify.emails_targeted : [];
+        const emailBadge = notify.email_sent
+          ? `<span style="color:#059669;"><i class="fa-solid fa-envelope-circle-check"></i> ส่ง Gmail แจ้งเตือนแล้ว (${targets.length} อีเมล)</span>`
+          : `<span style="color:#d97706;"><i class="fa-solid fa-envelope"></i> ระบบบันทึกแจ้งเตือนอีเมลแล้ว (${escapeHtml(notify.email_error || 'ยังไม่ได้ตั้งค่า Gmail SMTP')})</span>`;
+        const tgBadge = notify.telegram_sent
+          ? `<br><span style="color:#0284c7;"><i class="fa-brands fa-telegram"></i> ส่งข้อความเข้า Telegram Bot สำเร็จ</span>`
+          : '';
+        extraHtml = `
+          <div style="text-align:left; margin-top:10px; background:#fef2f2; border-left:4px solid #dc2626; padding:10px 12px; border-radius:8px; font-size:0.86rem; color:#7f1d1d;">
+            <strong>สาเหตุที่ตีกลับ:</strong><br>${escapeHtml(json.reason || feedback)}
+          </div>
+          <div style="text-align:left; margin-top:10px; font-size:0.82rem; line-height:1.5;">
+            ${emailBadge}${tgBadge}
+          </div>
+        `;
+      }
       Swal.fire({
         icon: 'success',
         title: 'ดำเนินการสำเร็จ!',
-        html: `<strong>${actionText}</strong><br><span style="font-size: 0.88rem; color: #64748b;">${json.message || ''}</span>`,
+        html: `<strong>${actionText}</strong><br>${extraHtml}`,
         confirmButtonColor: '#10b981',
         confirmButtonText: 'ตกลง'
       });
