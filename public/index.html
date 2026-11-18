@@ -118,7 +118,7 @@
         <i class="fa-solid fa-cloud-arrow-up"></i> ส่งแผนการสอน
       </button>
       <button class="nav-btn" id="tabBtnTrack" onclick="switchTab('track')">
-        <i class="fa-solid fa-clock-rotate-left"></i> สถานะของฉัน & Timeline
+        <i class="fa-solid fa-clock-rotate-left"></i> สถานะของฉัน & Timeline <span id="trackTabAlertBadge" style="display:none; background:#dc2626; color:#ffffff; font-size:0.7rem; padding:2px 8px; border-radius:999px; margin-left:4px; font-weight:700;">⚠️ ถูกตีกลับ</span>
       </button>
       <button class="nav-btn" id="tabBtnAdmin" onclick="switchTab('admin')">
         <i class="fa-solid fa-clipboard-check"></i> ระบบตรวจแผนตามลำดับขั้น
@@ -338,6 +338,16 @@
           </div>
 
           <div class="step-card-body">
+            <!-- Existing File Notice (Shown when teacher already has a plan / edit mode) -->
+            <div id="existingFileInfoBar" style="display: none; margin-bottom: 12px; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; border-radius: 10px; padding: 10px 14px; font-size: 0.85rem; color: #78350f;">
+              <div style="font-weight: 700; margin-bottom: 2px;">
+                <i class="fa-solid fa-file-pdf text-danger"></i> ไฟล์เดิมที่ส่งไว้ในระบบ: <span id="existingFileNameText">-</span>
+              </div>
+              <div style="font-size: 0.8rem; color: #92400e;">
+                หากแนบไฟล์ PDF ใหม่ด้านล่าง ระบบจะ <strong>ลบไฟล์เดิมออกและบันทึกไฟล์ใหม่เข้าไปแทนที่</strong> โดยอัตโนมัติ (พร้อมแสดงหน้าต่างยืนยันก่อนบันทึก)
+              </div>
+            </div>
+
             <!-- Modern Dropzone -->
             <div class="file-dropzone" id="fileDropzone" onclick="document.getElementById('pdfFileInput').click()">
               <input type="file" id="pdfFileInput" name="pdf_file" accept=".pdf,application/pdf" style="display: none;" onchange="handleFileSelected(event)">
@@ -1020,6 +1030,6 @@
     </div>
   </footer>
 
-  <script src="js/app.js?v=20261102_06"></script>
+  <script src="js/app.js?v=20261118_01"></script>
 </body>
 </html>

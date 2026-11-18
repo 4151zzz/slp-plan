@@ -32,10 +32,26 @@
         .replace(/"/g, '&quot;');
     }
 
+    async function safeJson(res) {
+      const text = await res.text();
+      if (!text || !text.trim()) {
+        return { success: false, message: `เซิร์ฟเวอร์ตอบกลับว่างเปล่า (HTTP ${res.status})` };
+      }
+      try {
+        return JSON.parse(text);
+      } catch (err) {
+        const cleanSnippet = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+        return {
+          success: false,
+          message: `เซิร์ฟเวอร์ตอบกลับผิดรูปแบบ (HTTP ${res.status}): ${cleanSnippet || err.message}`
+        };
+      }
+    }
+
     async function loadDriveStatus() {
       try {
         const res = await fetch('/api/admin/drive/status');
-        const json = await res.json();
+        const json = await safeJson(res);
         if (!json.success || !json.data) return;
 
         const data = json.data;
@@ -1817,7 +1833,7 @@
     async function loadStats() {
       try {
         const res = await fetch('/api/admin/stats');
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success && json.data) {
           allStatsData = json.data;
           const d = json.data;
@@ -1858,7 +1874,7 @@
     async function loadUsers() {
       try {
         const res = await fetch('/api/admin/users-list');
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success && json.data) {
           allUsers = json.data;
           renderUsersTable(allUsers);
@@ -1905,13 +1921,13 @@
             <td><code>${u.pin_code ? '••••' : '-'}</code></td>
             <td style="text-align: right; white-space: nowrap;">
               <div style="display: inline-flex; gap: 6px; align-items: center;">
-                <button type="button" class="btn-pin-reset" onclick="quickResetUserPin('${u.id}', '${escapeHtml(u.name)}')" title="รีเซ็ตรหัส PIN ผู้ใช้">
+                <button type="button" class="btn-pin-reset" onclick="quickResetUserPin('${u.id}')" title="รีเซ็ตรหัส PIN ผู้ใช้">
                   <i class="fa-solid fa-key"></i> รีเซ็ต PIN
                 </button>
                 <button type="button" class="btn-edit-user" onclick="openEditUserModal('${u.id}')" title="แก้ไขข้อมูลผู้ใช้">
                   <i class="fa-solid fa-pen-to-square"></i> แก้ไข
                 </button>
-                <button type="button" class="btn-delete-user" onclick="confirmDeleteUser('${u.id}', '${escapeHtml(u.name)}')" title="ลบผู้ใช้">
+                <button type="button" class="btn-delete-user" onclick="confirmDeleteUser('${u.id}')" title="ลบผู้ใช้">
                   <i class="fa-solid fa-trash"></i> ลบ
                 </button>
               </div>
@@ -1944,7 +1960,7 @@
     async function loadTerms() {
       try {
         const res = await fetch('/api/terms');
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success && json.data) {
           allTerms = json.data;
           renderTermsTable(allTerms);
@@ -1969,10 +1985,10 @@
           : '<span class="badge badge-draft" style="font-size: 0.82rem; padding: 5px 12px; background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;"><i class="fa-solid fa-circle-xmark"></i> ปิดรับแผน</span>';
 
         const toggleBtn = t.is_active
-          ? `<button type="button" class="btn-toggle-term close-btn" onclick="toggleTerm('${t.id}', 0, '${escapeHtml(t.name)}')" title="คลิกเพื่อปิดรับแผนการสอนของภาคเรียนนี้">
+          ? `<button type="button" class="btn-toggle-term close-btn" onclick="toggleTerm('${t.id}', 0)" title="คลิกเพื่อปิดรับแผนการสอนของภาคเรียนนี้">
                <i class="fa-solid fa-lock"></i> ปิดรับแผน
              </button>`
-          : `<button type="button" class="btn-toggle-term open-btn" onclick="toggleTerm('${t.id}', 1, '${escapeHtml(t.name)}')" title="คลิกเพื่อเปิดรับแผนการสอนของภาคเรียนนี้">
+          : `<button type="button" class="btn-toggle-term open-btn" onclick="toggleTerm('${t.id}', 1)" title="คลิกเพื่อเปิดรับแผนการสอนของภาคเรียนนี้">
                <i class="fa-solid fa-lock-open"></i> เปิดรับแผนภาคเรียนนี้
              </button>`;
 
@@ -1992,7 +2008,7 @@
                 <button type="button" class="btn-edit-user" onclick="openEditTermModal('${t.id}')" title="แก้ไขข้อมูลภาคเรียน">
                   <i class="fa-solid fa-pen-to-square"></i> แก้ไข
                 </button>
-                <button type="button" class="btn-delete-user" onclick="confirmDeleteTerm('${t.id}', '${escapeHtml(t.name)}')" title="ลบภาคเรียน">
+                <button type="button" class="btn-delete-user" onclick="confirmDeleteTerm('${t.id}')" title="ลบภาคเรียน">
                   <i class="fa-solid fa-trash"></i> ลบ
                 </button>
               </div>
@@ -2017,10 +2033,14 @@
     }
 
     async function toggleTerm(termId, targetState, termName) {
+      if (!termName) {
+        const foundTerm = (allTerms || []).find(t => t.id === termId);
+        termName = foundTerm ? foundTerm.name : termId;
+      }
       const isClosing = targetState === 0;
       const confirmText = isClosing
-        ? `ท่านต้องการ <strong>ปิดรับแผนการสอน</strong> สำหรับ "${termName}" ใช่หรือไม่?<br><span style="font-size: 0.82rem; color: #64748b;">(ครูจะไม่สามารถยื่นส่งแผนใหม่ในภาคเรียนนี้ได้จนกว่าจะเปิดรับอีกครั้ง)</span>`
-        : `ท่านต้องการ <strong>เปิดรับแผนการสอน</strong> สำหรับ "${termName}" เป็นภาคเรียนปัจจุบันใช่หรือไม่?`;
+        ? `ท่านต้องการ <strong>ปิดรับแผนการสอน</strong> สำหรับ "${escapeHtml(termName)}" ใช่หรือไม่?<br><span style="font-size: 0.82rem; color: #64748b;">(ครูจะไม่สามารถยื่นส่งแผนใหม่ในภาคเรียนนี้ได้จนกว่าจะเปิดรับอีกครั้ง)</span>`
+        : `ท่านต้องการ <strong>เปิดรับแผนการสอน</strong> สำหรับ "${escapeHtml(termName)}" เป็นภาคเรียนปัจจุบันใช่หรือไม่?`;
 
       const result = await Swal.fire({
         title: isClosing ? 'ยืนยันปิดรับแผนการสอน?' : 'ยืนยันเปิดรับแผนการสอน?',
@@ -2041,7 +2061,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ active: targetState })
           });
-          const json = await res.json();
+          const json = await safeJson(res);
           if (json.success) {
             Swal.fire({
               icon: 'success',
@@ -2109,7 +2129,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code, name, start_date, end_date, is_active })
         });
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success) {
           if (id && is_active) {
             await fetch(`/api/admin/terms/${id}/toggle`, {
@@ -2130,9 +2150,13 @@
     }
 
     async function confirmDeleteTerm(termId, termName) {
+      if (!termName) {
+        const foundTerm = (allTerms || []).find(t => t.id === termId);
+        termName = foundTerm ? foundTerm.name : termId;
+      }
       const result = await Swal.fire({
         title: 'ยืนยันการลบภาคเรียน?',
-        html: `คุณแน่ใจหรือไม่ว่าต้องการลบภาคเรียน <strong>${termName}</strong>?<br><span style="font-size: 0.82rem; color: #64748b;">(จะลบได้เฉพาะภาคเรียนที่ไม่มีประวัติการส่งแผนการสอนเท่านั้น)</span>`,
+        html: `คุณแน่ใจหรือไม่ว่าต้องการลบภาคเรียน <strong>${escapeHtml(termName)}</strong>?<br><span style="font-size: 0.82rem; color: #64748b;">(จะลบได้เฉพาะภาคเรียนที่ไม่มีประวัติการส่งแผนการสอนเท่านั้น)</span>`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#dc2626',
@@ -2145,7 +2169,7 @@
       if (result.isConfirmed) {
         try {
           const res = await fetch(`/api/admin/terms/${termId}`, { method: 'DELETE' });
-          const json = await res.json();
+          const json = await safeJson(res);
           if (json.success) {
             Swal.fire({ icon: 'success', title: 'ลบสำเร็จ', text: json.message, confirmButtonColor: '#2563eb' });
             await loadTerms();
@@ -2230,7 +2254,7 @@
 
       try {
         const res = await fetch('/api/admin/plans?filter_mode=all');
-        const json = await res.json();
+        const json = await safeJson(res);
         if (!json.success || !json.data) {
           if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #ef4444; padding: 2rem;">ไม่สามารถโหลดข้อมูลแผนการสอนได้</td></tr>';
           return;
@@ -2434,7 +2458,7 @@
 
       try {
         const res = await fetch(`/api/plans/${planId}/versions`);
-        const json = await res.json();
+        const json = await safeJson(res);
         if (!json.success || !json.data || json.data.length === 0) {
           Swal.fire({
             icon: 'info',
@@ -2524,7 +2548,7 @@
 
       try {
         const res = await fetch(`/api/plans/${planId}`, { method: 'DELETE' });
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success) {
           Swal.fire({
             icon: 'success',
@@ -2560,7 +2584,7 @@
 
       try {
         const res = await fetch(`/api/plans/${planId}/sync-drive`, { method: 'POST' });
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success) {
           await Swal.fire({
             icon: 'success',
@@ -2592,7 +2616,7 @@
     async function loadDepartments() {
       try {
         const res = await fetch('/api/departments');
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success && json.data) {
           allDepartments = json.data;
           renderDepartmentsTable(allDepartments);
@@ -2669,14 +2693,14 @@
             </td>
             <td style="text-align: right; white-space: nowrap;">
               <div style="display: inline-flex; gap: 6px; align-items: center;">
-                <button type="button" class="btn-pin-reset" onclick="quickResetDeptPin('${d.id}', '${escapeHtml(d.name)}')" title="รีเซ็ตรหัส PIN ผู้ตรวจประจำหมวด">
+                <button type="button" class="btn-pin-reset" onclick="quickResetDeptPin('${d.id}')" title="รีเซ็ตรหัส PIN ผู้ตรวจประจำหมวด">
                   <i class="fa-solid fa-key"></i> รีเซ็ต PIN
                 </button>
                 <button type="button" class="btn-edit-user" onclick="openEditDeptModal('${d.id}')" title="แก้ไขข้อมูล / แต่งตั้งหัวหน้าหมวด">
                   <i class="fa-solid fa-user-pen"></i> แต่งตั้ง / แก้ไข
                 </button>
                 ${!isCore ? `
-                  <button type="button" class="btn-delete-user" onclick="confirmDeleteDept('${d.id}', '${escapeHtml(d.name)}')" title="ลบหมวดวิชา">
+                  <button type="button" class="btn-delete-user" onclick="confirmDeleteDept('${d.id}')" title="ลบหมวดวิชา">
                     <i class="fa-solid fa-trash"></i> ลบ
                   </button>
                 ` : ''}
@@ -2756,7 +2780,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, code, head_name, head_email, head_pin, description })
         });
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success) {
           Swal.fire({ icon: 'success', title: 'สำเร็จ!', text: json.message, confirmButtonColor: '#2563eb' });
           closeDeptModal();
@@ -2772,9 +2796,13 @@
     }
 
     async function confirmDeleteDept(deptId, deptName) {
+      if (!deptName) {
+        const foundDept = (allDepartments || []).find(d => d.id === deptId);
+        deptName = foundDept ? foundDept.name : deptId;
+      }
       const result = await Swal.fire({
         title: 'ยืนยันการลบหมวดวิชา?',
-        html: `คุณแน่ใจหรือไม่ว่าต้องการลบกลุ่มสาระฯ <strong>${deptName}</strong>?`,
+        html: `คุณแน่ใจหรือไม่ว่าต้องการลบกลุ่มสาระฯ <strong>${escapeHtml(deptName)}</strong>?`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#dc2626',
@@ -2786,7 +2814,7 @@
       if (result.isConfirmed) {
         try {
           const res = await fetch(`/api/departments/${deptId}`, { method: 'DELETE' });
-          const json = await res.json();
+          const json = await safeJson(res);
           if (json.success) {
             Swal.fire({ icon: 'success', title: 'ลบสำเร็จ', text: json.message, confirmButtonColor: '#2563eb' });
             await loadDepartments();
@@ -2871,7 +2899,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, email, role, department, position_title, pin_code })
         });
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success) {
           Swal.fire({ icon: 'success', title: 'สำเร็จ!', text: json.message, confirmButtonColor: '#2563eb' });
           closeUserModal();
@@ -2886,9 +2914,13 @@
     }
 
     async function confirmDeleteUser(userId, userName) {
+      if (!userName) {
+        const foundU = (allUsers || []).find(u => u.id === userId);
+        userName = foundU ? foundU.name : userId;
+      }
       const result = await Swal.fire({
         title: 'ยืนยันการลบผู้ใช้?',
-        html: `คุณแน่ใจหรือไม่ว่าต้องการลบบัญชี <strong>${userName}</strong> ออกจากระบบ?`,
+        html: `คุณแน่ใจหรือไม่ว่าต้องการลบบัญชี <strong>${escapeHtml(userName)}</strong> ออกจากระบบ?`,
         icon: 'warning',
         showCancelButton: true,
         confirmButtonColor: '#dc2626',
@@ -2900,7 +2932,7 @@
       if (result.isConfirmed) {
         try {
           const res = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
-          const json = await res.json();
+          const json = await safeJson(res);
           if (json.success) {
             Swal.fire({ icon: 'success', title: 'ลบสำเร็จ', text: json.message, confirmButtonColor: '#2563eb' });
             await loadUsers();
@@ -2915,6 +2947,10 @@
     }
 
     async function quickResetUserPin(userId, userName) {
+      if (!userName) {
+        const foundU = (allUsers || []).find(u => u.id === userId);
+        userName = foundU ? foundU.name : userId;
+      }
       const { value: newPin, isConfirmed } = await Swal.fire({
         title: 'กำหนดรหัส PIN ใหม่',
         html: `กำหนดรหัส PIN ใหม่สำหรับ: <strong>${escapeHtml(userName)}</strong><br><span style="font-size: 0.85rem; color: #64748b;">(ระบุรหัสตัวเลขหรือตัวอักษร 4 หลักขึ้นไป)</span>`,
@@ -2945,7 +2981,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pin: newPin.trim() })
           });
-          const json = await res.json();
+          const json = await safeJson(res);
           if (json.success) {
             Swal.fire({
               icon: 'success',
@@ -2964,6 +3000,10 @@
     }
 
     async function quickResetDeptPin(deptId, deptName) {
+      if (!deptName) {
+        const foundDept = (allDepartments || []).find(d => d.id === deptId);
+        deptName = foundDept ? foundDept.name : deptId;
+      }
       const { value: newPin, isConfirmed } = await Swal.fire({
         title: 'กำหนดรหัส PIN ผู้ตรวจ',
         html: `กำหนดรหัส PIN สำหรับหัวหน้ากลุ่มสาระฯ: <strong>${escapeHtml(deptName)}</strong><br><span style="font-size: 0.85rem; color: #64748b;">(ระบุรหัส 4 หลักขึ้นไป)</span>`,
@@ -2994,7 +3034,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pin: newPin.trim() })
           });
-          const json = await res.json();
+          const json = await safeJson(res);
           if (json.success) {
             Swal.fire({
               icon: 'success',
@@ -3075,7 +3115,7 @@
               newPin: formValues.newPin
             })
           });
-          const json = await res.json();
+          const json = await safeJson(res);
           if (json.success) {
             Swal.fire({
               icon: 'success',
@@ -3114,7 +3154,7 @@
 
       try {
         const res = await fetch('/api/admin/system/verify-timelines', { method: 'POST' });
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success) {
           Swal.fire({
             icon: 'success',
@@ -3282,7 +3322,7 @@
       let current = {};
       try {
         const res = await fetch('/api/admin/notifications/settings');
-        const json = await res.json();
+        const json = await safeJson(res);
         if (json.success && json.data) current = json.data;
       } catch (e) {}
 
@@ -3347,7 +3387,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(modalResult.value)
           });
-          const saveJson = await saveRes.json();
+          const saveJson = await safeJson(saveRes);
           Swal.fire({
             icon: saveJson.success ? 'success' : 'error',
             title: saveJson.success ? 'บันทึกสำเร็จ!' : 'เกิดข้อผิดพลาด',
@@ -3370,7 +3410,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(modalResult.value)
           });
-          const tj = await testRes.json();
+          const tj = await safeJson(testRes);
           const emailLine = tj.email && tj.email.success
             ? `✅ Gmail: ส่งสำเร็จ (${(tj.recipients || []).join(', ')})`
             : `❌ Gmail: ${escapeHtml((tj.email && tj.email.error) || 'ไม่สำเร็จ')}`;

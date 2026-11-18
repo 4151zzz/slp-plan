@@ -15,22 +15,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+@error_reporting(0);
 @ini_set('display_errors', '0');
 @ini_set('memory_limit', '512M');
 @set_time_limit(300);
+if (ob_get_level() === 0) {
+    @ob_start();
+}
 
 // Global Exception & Shutdown Handlers (Always return clean JSON)
 set_exception_handler(function($e) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(500);
+    }
+    $flags = JSON_UNESCAPED_UNICODE;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    if (defined('JSON_PARTIAL_OUTPUT_ON_ERROR')) $flags |= JSON_PARTIAL_OUTPUT_ON_ERROR;
+    echo json_encode(['success' => false, 'message' => $e->getMessage(), 'error' => $e->getMessage()], $flags);
     exit;
 });
 
 register_shutdown_function(function() {
     $err = error_get_last();
     if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $err['message'] . ' in ' . basename($err['file']) . ' line ' . $err['line']], JSON_UNESCAPED_UNICODE);
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+            http_response_code(500);
+        }
+        $msg = $err['message'] . ' in ' . basename($err['file']) . ' line ' . $err['line'];
+        $flags = JSON_UNESCAPED_UNICODE;
+        if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+        if (defined('JSON_PARTIAL_OUTPUT_ON_ERROR')) $flags |= JSON_PARTIAL_OUTPUT_ON_ERROR;
+        echo json_encode(['success' => false, 'message' => $msg, 'error' => $msg], $flags);
     }
 });
 
@@ -90,8 +113,21 @@ function getDatabase() {
 // Helpers
 // -------------------------------------------------------------
 function json_resp($data, $status = 200) {
-    http_response_code($status);
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code($status);
+    }
+    $flags = JSON_UNESCAPED_UNICODE;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    if (defined('JSON_PARTIAL_OUTPUT_ON_ERROR')) $flags |= JSON_PARTIAL_OUTPUT_ON_ERROR;
+    $out = json_encode($data, $flags);
+    if ($out === false) {
+        $out = json_encode(['success' => false, 'message' => 'JSON encode error: ' . json_last_error_msg()], JSON_UNESCAPED_UNICODE);
+    }
+    echo $out;
     exit;
 }
 
@@ -773,15 +809,15 @@ function ensure_plan_versions_table($pdo) {
             `submission_status` VARCHAR(64) DEFAULT 'submitted',
             `current_stage` VARCHAR(64) DEFAULT 'dept_head',
             `current_reviewer_title` VARCHAR(255) DEFAULT NULL,
-            `reviewer_feedback` TEXT DEFAULT NULL,
+            `reviewer_feedback` TEXT NULL,
             `file_original_name` VARCHAR(255) DEFAULT NULL,
             `file_size` BIGINT DEFAULT NULL,
-            `local_file_path` TEXT DEFAULT NULL,
-            `stamped_file_path` TEXT DEFAULT NULL,
+            `local_file_path` TEXT NULL,
+            `stamped_file_path` TEXT NULL,
             `google_drive_file_id` VARCHAR(255) DEFAULT NULL,
-            `google_drive_view_link` TEXT DEFAULT NULL,
-            `google_drive_download_link` TEXT DEFAULT NULL,
-            `signature_data` LONGTEXT DEFAULT NULL,
+            `google_drive_view_link` TEXT NULL,
+            `google_drive_download_link` TEXT NULL,
+            `signature_data` LONGTEXT NULL,
             `submission_round` INT DEFAULT 1,
             `current_round` INT DEFAULT 1,
             `round_2_status` VARCHAR(64) DEFAULT 'not_started',
@@ -1176,14 +1212,17 @@ if ($method === 'GET' && $path === '/plans/check-duplicate') {
     $existing = $stmt->fetch();
 
     if ($existing) {
-        $canEdit = in_array($existing['submission_status'], ['draft', 'revision_needed', 'submitted']);
+        $canEdit = in_array($existing['submission_status'], ['draft', 'revision_needed', 'submitted', 'under_review'])
+            || ($existing['round_2_status'] ?? '') === 'revision_needed';
         json_resp([
             'exists' => true,
             'canEdit' => $canEdit,
             'status' => $existing['submission_status'],
-            'message' => $canEdit 
-                ? 'คุณมีแผนการสอนในภาคเรียนนี้แล้ว (สามารถแก้ไขหรือส่งฉบับปรับปรุงได้)'
-                : 'คุณได้ส่งแผนการสอนสำหรับภาคเรียนนี้ไปแล้ว',
+            'message' => ($existing['submission_status'] === 'revision_needed' || ($existing['round_2_status'] ?? '') === 'revision_needed')
+                ? 'แผนการสอนของคุณถูกตีกลับให้แก้ไข กรุณาแก้ไขหรือแนบไฟล์ใหม่'
+                : ($canEdit 
+                    ? 'คุณมีแผนการสอนในภาคเรียนนี้แล้ว (สามารถแก้ไขหรือแนบไฟล์ใหม่แทนที่ได้)'
+                    : 'คุณได้ส่งแผนการสอนสำหรับภาคเรียนนี้ไปแล้ว'),
             'plan' => [
                 'id' => $existing['id'],
                 'subject_code' => $existing['subject_code'],
@@ -1193,11 +1232,14 @@ if ($method === 'GET' && $path === '/plans/check-duplicate') {
                 'grade_level' => $existing['grade_level'],
                 'submission_status' => $existing['submission_status'],
                 'current_stage' => $existing['current_stage'],
+                'current_reviewer_title' => $existing['current_reviewer_title'] ?? null,
                 'round_2_status' => $existing['round_2_status'] ?? 'not_started',
                 'round_2_stage' => $existing['round_2_stage'] ?? 'dept_head',
                 'file_original_name' => $existing['file_original_name'],
                 'created_at' => $existing['created_at'],
                 'reviewer_feedback' => $existing['reviewer_feedback'],
+                'reviewed_by' => $existing['reviewed_by'] ?? null,
+                'reviewed_at' => $existing['reviewed_at'] ?? null,
                 'google_drive_view_link' => $existing['google_drive_view_link']
             ]
         ]);
@@ -1403,7 +1445,8 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
         json_resp(['success' => false, 'message' => 'ไม่พบข้อมูลแผนการสอนที่ต้องการแก้ไข'], 404);
     }
 
-    if (!in_array($existing['submission_status'], ['submitted', 'revision_needed', 'draft'])) {
+    $isR2Rev = (($existing['round_2_status'] ?? '') === 'revision_needed');
+    if (!in_array($existing['submission_status'], ['submitted', 'under_review', 'revision_needed', 'draft']) && !$isR2Rev) {
         json_resp([
             'success' => false,
             'message' => "ไม่สามารถแก้ไขได้เนื่องจากสถานะปัจจุบันคือ \"{$existing['submission_status']}\""
@@ -1411,7 +1454,7 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
     }
 
     // Step 1: Automatically archive / snapshot current status and file BEFORE modifying
-    $snapInfo = create_plan_snapshot($pdo, $planId, 'ก่อนบันทึกการแก้ไข / ส่งฉบับปรับปรุง');
+    $snapInfo = create_plan_snapshot($pdo, $planId, 'ก่อนบันทึกการแก้ไข / ลบไฟล์เดิมและบันทึกไฟล์ใหม่');
 
     $tName = trim($_POST['teacher_name'] ?? $existing['teacher_name']);
     $tDept = trim($_POST['teacher_department'] ?? $existing['teacher_department']);
@@ -1421,22 +1464,30 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
     $sigData = $_POST['signature_data'] ?? $existing['signature_data'];
 
     $localFilePath = $existing['local_file_path'];
+    $stampedFilePath = $existing['stamped_file_path'] ?? null;
     $originalName = $existing['file_original_name'];
     $fileSize = $existing['file_size'];
     $driveFileId = $existing['google_drive_file_id'];
     $driveViewLink = $existing['google_drive_view_link'];
     $driveDownloadLink = $existing['google_drive_download_link'];
+    $fileReplaced = false;
 
     if (isset($_FILES['pdf_file']) && $_FILES['pdf_file']['error'] === UPLOAD_ERR_OK) {
         $file = $_FILES['pdf_file'];
         $originalName = $file['name'];
         $fileSize = $file['size'];
+        $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        if ($ext !== 'pdf') {
+            json_resp(['success' => false, 'message' => 'รองรับเฉพาะไฟล์ PDF เท่านั้น'], 400);
+        }
 
         $uniqueFileName = 'plan_' . time() . '_' . substr(gen_uuid(), 0, 8) . '.pdf';
         $destPath = save_uploaded_pdf_file($file['tmp_name'], $uniqueFileName);
         $localFilePath = 'data/uploads/' . $uniqueFileName;
+        $stampedFilePath = $localFilePath;
+        $fileReplaced = true;
 
-        // Old local file is safely preserved in snapshot (plan_backup_v...)
+        // Delete previous local files (active & stamped) after backup snapshot was created
         $oldLocal = $existing['local_file_path'];
         $oldStamped = $existing['stamped_file_path'] ?? null;
         $oldDriveId = $existing['google_drive_file_id'];
@@ -1447,9 +1498,10 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
         if (!empty($oldStamped) && $oldStamped !== $localFilePath && $oldStamped !== $oldLocal) {
             delete_local_pdf_if_exists($oldStamped);
         }
-        // Upload new file to Google Drive FIRST before deleting old Drive file
+
+        // Upload new file to Google Drive & remove old Drive file
         try {
-            $driveRes = uploadViaGoogleScript($destPath, $originalName, $tDept, $tName, null);
+            $driveRes = uploadViaGoogleScript($destPath, $originalName, $tDept, $tName, $oldDriveId);
             if (!$driveRes) {
                 $token = getGoogleAccessToken();
                 if ($token) {
@@ -1468,40 +1520,79 @@ if (($method === 'PUT' || $method === 'POST') && preg_match('#^/plans/([^/]+)$#'
         } catch (Exception $e) {}
     }
 
-    $upd = $pdo->prepare("
-        UPDATE lesson_plans 
-        SET teacher_name = ?,
-            teacher_department = ?,
-            subject_code = ?,
-            subject_name = ?,
-            grade_level = ?,
-            file_original_name = ?,
-            file_size = ?,
-            local_file_path = ?,
-            google_drive_file_id = ?,
-            google_drive_view_link = ?,
-            google_drive_download_link = ?,
-            signature_data = ?,
-            submission_status = 'submitted',
-            current_stage = 'dept_head',
-            current_reviewer_title = 'หัวหน้ากลุ่มสาระการเรียนรู้',
-            reviewer_feedback = NULL,
-            updated_at = NOW()
-        WHERE id = ?
-    ");
-    $upd->execute([
-        $tName, $tDept, $sCode, $sName, $gLevel,
-        $originalName, $fileSize, $localFilePath,
-        $driveFileId, $driveViewLink, $driveDownloadLink,
-        $sigData, $planId
-    ]);
-
-    init_approval_timeline($pdo, $planId, $tName, 'dept_head', 'submitted', 1);
+    if ($isR2Rev && $existing['submission_status'] === 'approved') {
+        $upd = $pdo->prepare("
+            UPDATE lesson_plans 
+            SET teacher_name = ?,
+                teacher_department = ?,
+                subject_code = ?,
+                subject_name = ?,
+                grade_level = ?,
+                file_original_name = ?,
+                file_size = ?,
+                local_file_path = ?,
+                stamped_file_path = ?,
+                google_drive_file_id = ?,
+                google_drive_view_link = ?,
+                google_drive_download_link = ?,
+                round_2_signature = ?,
+                round_2_signed_at = NOW(),
+                round_2_status = 'submitted',
+                round_2_stage = 'dept_head',
+                reviewer_feedback = NULL,
+                reviewed_by = NULL,
+                reviewed_at = NULL,
+                updated_at = NOW()
+            WHERE id = ?
+        ");
+        $upd->execute([
+            $tName, $tDept, $sCode, $sName, $gLevel,
+            $originalName, $fileSize, $localFilePath, $stampedFilePath,
+            $driveFileId, $driveViewLink, $driveDownloadLink,
+            $sigData, $planId
+        ]);
+        init_approval_timeline($pdo, $planId, $tName, 'dept_head', 'submitted', 2);
+    } else {
+        $upd = $pdo->prepare("
+            UPDATE lesson_plans 
+            SET teacher_name = ?,
+                teacher_department = ?,
+                subject_code = ?,
+                subject_name = ?,
+                grade_level = ?,
+                file_original_name = ?,
+                file_size = ?,
+                local_file_path = ?,
+                stamped_file_path = ?,
+                google_drive_file_id = ?,
+                google_drive_view_link = ?,
+                google_drive_download_link = ?,
+                signature_data = ?,
+                submission_status = 'submitted',
+                current_stage = 'dept_head',
+                current_reviewer_title = 'หัวหน้ากลุ่มสาระการเรียนรู้',
+                reviewer_feedback = NULL,
+                reviewed_by = NULL,
+                reviewed_at = NULL,
+                updated_at = NOW()
+            WHERE id = ?
+        ");
+        $upd->execute([
+            $tName, $tDept, $sCode, $sName, $gLevel,
+            $originalName, $fileSize, $localFilePath, $stampedFilePath,
+            $driveFileId, $driveViewLink, $driveDownloadLink,
+            $sigData, $planId
+        ]);
+        init_approval_timeline($pdo, $planId, $tName, 'dept_head', 'submitted', 1);
+    }
 
     json_resp([
         'success' => true,
-        'message' => 'บันทึกประวัติเวอร์ชันเดิมเรียบร้อย และอัปเดตแผนการสอนฉบับปรับปรุงแล้ว',
+        'message' => $fileReplaced
+            ? 'ลบไฟล์เดิมออกและบันทึกไฟล์แผนการสอนใหม่เรียบร้อยแล้ว ระบบได้ส่งเข้าตรวจใหม่แล้ว'
+            : 'บันทึกข้อมูลแผนการสอนฉบับปรับปรุงเรียบร้อยแล้ว',
         'planId' => $planId,
+        'fileReplaced' => $fileReplaced,
         'versionNumber' => ($snapInfo ? $snapInfo['versionNumber'] + 1 : 2),
         'driveViewLink' => $driveViewLink
     ]);
@@ -1530,6 +1621,10 @@ if ($method === 'GET' && preg_match('#^/plans/([^/]+)/versions$#', $path, $match
     $stmt = $pdo->prepare("SELECT * FROM lesson_plan_versions WHERE lesson_plan_id = ? ORDER BY version_number DESC");
     $stmt->execute([$planId]);
     $list = $stmt->fetchAll();
+    foreach ($list as &$ver) {
+        unset($ver['signature_data']);
+    }
+    unset($ver);
     json_resp(['success' => true, 'data' => $list]);
 }
 
@@ -1622,10 +1717,55 @@ if ($method === 'GET' && preg_match('#^/plans/teacher/([^/]+)$#', $path, $matche
     ");
     $stmt->execute([$email]);
     $rows = $stmt->fetchAll();
-    foreach ($rows as &$r) {
-        if (empty($r['google_drive_view_link'])) {
-            syncPlanToGoogleDriveIfMissing($pdo, $r);
+
+    $planIds = array_column($rows, 'id');
+    $timelinesByPlanRound = [];
+    if (!empty($planIds)) {
+        $inClause = implode(',', array_fill(0, count($planIds), '?'));
+        $tlStmt = $pdo->prepare("SELECT id, lesson_plan_id, step_order, stage_key, stage_title, reviewer_name, reviewer_role, status, feedback, action_at, round_number FROM approval_timeline WHERE lesson_plan_id IN ($inClause) ORDER BY step_order ASC");
+        $tlStmt->execute($planIds);
+        foreach ($tlStmt->fetchAll() as $st) {
+            $pid = $st['lesson_plan_id'];
+            $rn = intval($st['round_number'] ?? 1) === 2 ? 2 : 1;
+            $timelinesByPlanRound[$pid][$rn][] = $st;
         }
+    }
+
+    foreach ($rows as &$r) {
+        unset($r['signature_data'], $r['round_2_signature']);
+        $pid = $r['id'];
+        $t1 = $timelinesByPlanRound[$pid][1] ?? [];
+        if (empty($t1)) {
+            $stageOrderMap = ['dept_head' => 1, 'curriculum_head' => 2, 'academic_director' => 3, 'director' => 4, 'completed' => 5];
+            $subStatus = $r['submission_status'] ?? 'submitted';
+            $curOrder = $subStatus === 'approved' ? 5 : ($stageOrderMap[$r['current_stage'] ?? 'dept_head'] ?? 1);
+            $defs = [
+                ['step_order' => 1, 'stage_key' => 'dept_head', 'stage_title' => '1. หัวหน้ากลุ่มสาระ'],
+                ['step_order' => 2, 'stage_key' => 'curriculum_head', 'stage_title' => '2. หัวหน้างานหลักสูตร'],
+                ['step_order' => 3, 'stage_key' => 'academic_director', 'stage_title' => '3. รองผู้อำนวยการฝ่ายวิชาการ'],
+                ['step_order' => 4, 'stage_key' => 'director', 'stage_title' => '4. ผู้อำนวยการ']
+            ];
+            foreach ($defs as $d) {
+                $st = 'waiting';
+                if ($subStatus === 'approved' || $d['step_order'] < $curOrder) $st = 'completed';
+                elseif ($d['step_order'] === $curOrder) $st = ($subStatus === 'revision_needed' ? 'revision_needed' : 'in_progress');
+                $t1[] = [
+                    'step_order' => $d['step_order'],
+                    'stage_key' => $d['stage_key'],
+                    'stage_title' => $d['stage_title'],
+                    'reviewer_name' => null,
+                    'status' => $st,
+                    'feedback' => ($st === 'revision_needed' ? ($r['reviewer_feedback'] ?? null) : null)
+                ];
+            }
+        }
+        $t2 = $timelinesByPlanRound[$pid][2] ?? [];
+        $r['timeline_round_1'] = $t1;
+        $r['timeline_round_2'] = $t2;
+        $hasRound2 = (intval($r['current_round'] ?? 1) === 2 || (!empty($r['round_2_status']) && $r['round_2_status'] !== 'not_started'));
+        $r1Approved = (($r['submission_status'] ?? '') === 'approved');
+        $activeRound = ($r1Approved && $hasRound2) ? 2 : 1;
+        $r['timeline'] = ($activeRound === 2 && !empty($t2)) ? $t2 : $t1;
     }
     unset($r);
     json_resp(['success' => true, 'data' => $rows]);
@@ -1643,9 +1783,7 @@ if ($method === 'GET' && preg_match('#^/plans/([^/]+)$#', $path, $matches) && !i
     $stmt->execute([$planId]);
     $plan = $stmt->fetch();
     if (!$plan) json_resp(['success' => false, 'message' => 'ไม่พบข้อมูลแผนการสอน'], 404);
-    if (empty($plan['google_drive_view_link'])) {
-        syncPlanToGoogleDriveIfMissing($pdo, $plan);
-    }
+    unset($plan['signature_data'], $plan['round_2_signature']);
     json_resp(['success' => true, 'data' => $plan]);
 }
 
@@ -1663,9 +1801,7 @@ if ($method === 'GET' && preg_match('#^/plans/([^/]+)/timeline$#', $path, $match
     if (!$plan) {
         json_resp(['success' => false, 'message' => 'ไม่พบข้อมูลแผนการสอน'], 404);
     }
-    if (empty($plan['google_drive_view_link'])) {
-        syncPlanToGoogleDriveIfMissing($pdo, $plan);
-    }
+    unset($plan['signature_data'], $plan['round_2_signature']);
 
     $t1Stmt = $pdo->prepare("
         SELECT * FROM approval_timeline 
@@ -1824,7 +1960,7 @@ if ($method === 'GET' && $path === '/admin/plans') {
     $timelinesByPlanRound = [];
     if (!empty($planIds)) {
         $inClause = implode(',', array_fill(0, count($planIds), '?'));
-        $tlStmt = $pdo->prepare("SELECT * FROM approval_timeline WHERE lesson_plan_id IN ($inClause) ORDER BY step_order ASC");
+        $tlStmt = $pdo->prepare("SELECT id, lesson_plan_id, step_order, stage_key, stage_title, reviewer_name, reviewer_role, status, feedback, action_at, round_number FROM approval_timeline WHERE lesson_plan_id IN ($inClause) ORDER BY step_order ASC");
         $tlStmt->execute($planIds);
         $allTlSteps = $tlStmt->fetchAll();
         foreach ($allTlSteps as $st) {
@@ -1841,14 +1977,9 @@ if ($method === 'GET' && $path === '/admin/plans') {
     $countTotal = count($allPlans);
 
     $filteredPlans = [];
-    $autoSyncedCount = 0;
 
     foreach ($allPlans as &$p) {
-        if (empty($p['google_drive_view_link']) && $autoSyncedCount < 2) {
-            if (syncPlanToGoogleDriveIfMissing($pdo, $p)) {
-                $autoSyncedCount++;
-            }
-        }
+        unset($p['signature_data'], $p['round_2_signature']);
         $pid = $p['id'];
         $hasRound2 = (intval($p['current_round']) === 2 || (!empty($p['round_2_status']) && $p['round_2_status'] !== 'not_started'));
         $r1Approved = ($p['submission_status'] === 'approved');
@@ -2555,7 +2686,7 @@ function deleteGoogleDriveFile($fileId) {
 
 function uploadViaGoogleScript($filePath, $fileName, $department, $teacherName, $deleteFileId = null) {
     @set_time_limit(180);
-    @ini_set('memory_limit', '256M');
+    @ini_set('memory_limit', '512M');
 
     $envPath = __DIR__ . '/../../.env';
     $webAppUrl = 'https://script.google.com/macros/s/AKfycbwj0MbEaIonkYhTbiI0HbVV1SgzDU4GqtrVwyBI0Eld5MgcoORD1040myQX13djqwLH/exec';
@@ -3060,6 +3191,7 @@ if ($method === 'GET' && $path === '/templates/download') {
     ];
     foreach ($candidates as $tplPath) {
         if (@file_exists($tplPath)) {
+            while (ob_get_level() > 0) { @ob_end_clean(); }
             $dlName = 'เทมเพลต_นท1_นท2.docx';
             header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
             header('Content-Disposition: attachment; filename="template_nt1_nt2.docx"; filename*=UTF-8\'\'' . rawurlencode($dlName));
@@ -3068,6 +3200,7 @@ if ($method === 'GET' && $path === '/templates/download') {
             exit;
         }
     }
+    while (ob_get_level() > 0) { @ob_end_clean(); }
     http_response_code(404);
     die('ไม่พบไฟล์เทมเพลต');
 }
@@ -3079,6 +3212,7 @@ if ($method === 'GET' && preg_match('#^/files/download/([^/]+)$#', $path, $match
     $stmt->execute([$planId]);
     $plan = $stmt->fetch();
     if (!$plan) {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
         http_response_code(404);
         die('ไม่พบข้อมูลแผนการสอน');
     }
@@ -3086,6 +3220,7 @@ if ($method === 'GET' && preg_match('#^/files/download/([^/]+)$#', $path, $match
     $fullPath = resolve_plan_pdf_path($plan);
 
     if (!$fullPath || !@file_exists($fullPath)) {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
         if (!empty($plan['google_drive_download_link'])) {
             header('Location: ' . $plan['google_drive_download_link']);
             exit;
@@ -3097,6 +3232,7 @@ if ($method === 'GET' && preg_match('#^/files/download/([^/]+)$#', $path, $match
         die('ไม่พบไฟล์เอกสารบนเซิร์ฟเวอร์');
     }
 
+    while (ob_get_level() > 0) { @ob_end_clean(); }
     $fileName = $plan['file_original_name'] ?: 'lesson_plan.pdf';
     header('Content-Type: application/pdf');
     header('Content-Disposition: attachment; filename="' . rawurlencode($fileName) . '"');
@@ -3112,6 +3248,7 @@ if ($method === 'GET' && preg_match('#^/files/view-stamped/([^/]+)$#', $path, $m
     $stmt->execute([$planId]);
     $plan = $stmt->fetch();
     if (!$plan) {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
         http_response_code(404);
         die('ไม่พบข้อมูลแผนการสอน');
     }
@@ -3119,6 +3256,7 @@ if ($method === 'GET' && preg_match('#^/files/view-stamped/([^/]+)$#', $path, $m
     $fullPath = resolve_plan_pdf_path($plan);
 
     if (!$fullPath || !@file_exists($fullPath)) {
+        while (ob_get_level() > 0) { @ob_end_clean(); }
         if (!empty($plan['google_drive_view_link'])) {
             $viewUrl = $plan['google_drive_view_link'];
             // Convert /view to /preview so it renders cleanly inside iframes as well
@@ -3135,6 +3273,7 @@ if ($method === 'GET' && preg_match('#^/files/view-stamped/([^/]+)$#', $path, $m
         exit;
     }
 
+    while (ob_get_level() > 0) { @ob_end_clean(); }
     header('Content-Type: application/pdf');
     header('Content-Disposition: inline; filename="' . rawurlencode($plan['file_original_name'] ?: 'lesson_plan.pdf') . '"');
     header('Content-Length: ' . filesize($fullPath));

@@ -10,6 +10,7 @@ let currentSelectedFile = null;
 let currentPreviewUrl = null;
 let termsList = [];
 let existingPlanData = null;
+let existingPlanCanEdit = false;
 let isEditMode = false;
 let editingPlanId = null;
 let activeEventSource = null;
@@ -18,6 +19,22 @@ let adminSearchTimer = null;
 // Auth & Users State
 let currentUser = null;
 let availableUsers = [];
+
+async function safeJson(res) {
+  const text = await res.text();
+  if (!text || !text.trim()) {
+    return { success: false, message: `เซิร์ฟเวอร์ตอบกลับว่างเปล่า (HTTP ${res.status})` };
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    const cleanSnippet = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180);
+    return {
+      success: false,
+      message: `เซิร์ฟเวอร์ตอบกลับผิดรูปแบบ (HTTP ${res.status}): ${cleanSnippet || err.message}`
+    };
+  }
+}
 
 document.addEventListener('DOMContentLoaded', async () => {
   initSignaturePad();
@@ -58,7 +75,7 @@ async function initAuth() {
       fetch('/api/departments')
     ]);
 
-    const usersJson = await usersRes.json();
+    const usersJson = await safeJson(usersRes);
     if (usersJson.success && usersJson.data) {
       availableUsers = usersJson.data;
       // Refresh current user info if updated on server
@@ -69,7 +86,7 @@ async function initAuth() {
       }
     }
 
-    const deptsJson = await deptsRes.json();
+    const deptsJson = await safeJson(deptsRes);
     if (deptsJson.success && deptsJson.data) {
       departmentsList = deptsJson.data;
       populateDepartmentDropdowns(departmentsList);
@@ -325,7 +342,7 @@ async function openChangePinModal() {
           newPin: formValues.newPin
         })
       });
-      const json = await res.json();
+      const json = await safeJson(res);
       if (json.success) {
         Swal.fire({
           icon: 'success',
@@ -525,6 +542,58 @@ function validateAndSetFile(file) {
   document.getElementById('fileBadge').classList.add('active');
   document.getElementById('fileDropzone').style.display = 'none';
 
+  // If teacher already has an editable plan in this term (Round 1), automatically enter edit/replace mode
+  const roundRadioCheck = document.querySelector('input[name="submission_round"]:checked');
+  const isRound2Check = roundRadioCheck ? parseInt(roundRadioCheck.value, 10) === 2 : (currentSubmissionRound === 2);
+  if (!isRound2Check && existingPlanData && existingPlanData.id && existingPlanCanEdit && !isEditMode) {
+    isEditMode = true;
+    editingPlanId = existingPlanData.id;
+    const editIdEl = document.getElementById('editPlanId');
+    if (editIdEl) editIdEl.value = existingPlanData.id;
+
+    // Auto-fill any empty form fields from existing plan
+    const fillIfEmpty = (id, val) => {
+      const el = document.getElementById(id);
+      if (el && !el.value.trim() && val) el.value = val;
+    };
+    fillIfEmpty('subjectCode', existingPlanData.subject_code);
+    fillIfEmpty('subjectName', existingPlanData.subject_name);
+    fillIfEmpty('teacherDepartment', existingPlanData.teacher_department);
+    fillIfEmpty('gradeLevel', existingPlanData.grade_level);
+    fillIfEmpty('teacherName', existingPlanData.teacher_name);
+
+    const modeBadge = document.getElementById('modeBadge');
+    if (modeBadge) {
+      modeBadge.textContent = 'แก้ไข / แทนที่ไฟล์เดิม';
+      modeBadge.className = 'badge badge-under_review';
+    }
+    const editNotice = document.getElementById('editModeNotice');
+    if (editNotice) {
+      const revNote = (existingPlanData.submission_status === 'revision_needed' && existingPlanData.reviewer_feedback)
+        ? `<div style="margin-top:4px; color:#b91c1c; font-size:0.82rem;"><strong>สาเหตุที่ตีกลับ:</strong> ${escapeHtml(existingPlanData.reviewer_feedback)}</div>`
+        : '';
+      editNotice.style.display = 'flex';
+      editNotice.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <i class="fa-solid fa-pen-to-square"></i> โหมดแก้ไขแผนเดิม: <strong>${escapeHtml(existingPlanData.subject_code || '')} - ${escapeHtml(existingPlanData.subject_name || '')}</strong>
+            <div style="font-size: 0.82rem; color: #92400e; margin-top: 3px;">
+              <i class="fa-solid fa-arrow-right-arrow-left"></i> เมื่อกดบันทึก ระบบจะลบไฟล์เดิม (<code>${escapeHtml(existingPlanData.file_original_name || 'ไฟล์เดิม')}</code>) ออกและบันทึกไฟล์ใหม่ (<code>${escapeHtml(file.name)}</code>) เข้าไปแทนที่
+            </div>
+            ${revNote}
+          </div>
+          <button type="button" class="btn btn-sm btn-outline" onclick="cancelEditMode()" style="border-radius: var(--radius-full); font-size: 0.8rem;">
+            <i class="fa-solid fa-xmark"></i> ยกเลิกโหมดแก้ไข
+          </button>
+        </div>
+      `;
+    }
+    const submitBtn = document.getElementById('btnSubmitPlan');
+    if (submitBtn) submitBtn.innerHTML = '<i class="fa-solid fa-save"></i> ยืนยันแก้ไขและบันทึกไฟล์ใหม่แทนที่';
+    const dupBanner = document.getElementById('duplicateAlertBanner');
+    if (dupBanner) dupBanner.style.display = 'none';
+  }
+
   if (currentPreviewUrl) URL.revokeObjectURL(currentPreviewUrl);
   currentPreviewUrl = URL.createObjectURL(file);
 
@@ -533,7 +602,7 @@ function validateAndSetFile(file) {
 
   document.getElementById('previewPlaceholder').style.display = 'none';
   document.getElementById('previewFrameWrap').classList.add('active');
-  document.getElementById('pdfPageInfo').textContent = `${formatBytes(file.size)}`;
+  document.getElementById('pdfPageInfo').textContent = isEditMode ? `${formatBytes(file.size)} (พร้อมแทนที่ไฟล์เดิม)` : `${formatBytes(file.size)}`;
   document.getElementById('pdfPageInfo').className = 'badge badge-submitted';
 }
 
@@ -579,7 +648,7 @@ function openPdfInNewTab() {
 async function loadTerms() {
   try {
     const res = await fetch('/api/terms');
-    const json = await res.json();
+    const json = await safeJson(res);
     if (json.success && json.data.length > 0) {
       termsList = json.data;
       const termSelect = document.getElementById('academicTerm');
@@ -629,6 +698,8 @@ async function triggerDuplicateCheck() {
   const termSelect = document.getElementById('academicTerm');
   const feedback = document.getElementById('emailFeedback');
   const banner = document.getElementById('duplicateAlertBanner');
+  const existingFileBar = document.getElementById('existingFileInfoBar');
+  const existingFileNameText = document.getElementById('existingFileNameText');
 
   const email = emailInput.value.trim();
   const termId = termSelect.value;
@@ -636,7 +707,9 @@ async function triggerDuplicateCheck() {
   if (!email || !email.includes('@') || !termId) {
     feedback.textContent = '';
     banner.style.display = 'none';
+    if (existingFileBar) existingFileBar.style.display = 'none';
     existingPlanData = null;
+    existingPlanCanEdit = false;
     return;
   }
 
@@ -644,14 +717,18 @@ async function triggerDuplicateCheck() {
 
   try {
     const res = await fetch(`/api/plans/check-duplicate?email=${encodeURIComponent(email)}&term_id=${encodeURIComponent(termId)}`);
-    const data = await res.json();
+    const data = await safeJson(res);
 
     const roundRadio = document.querySelector('input[name="submission_round"]:checked');
     const isRound2 = roundRadio ? parseInt(roundRadio.value, 10) === 2 : (currentSubmissionRound === 2);
 
     if (isRound2) {
+      if (existingFileBar) existingFileBar.style.display = 'none';
+      existingPlanCanEdit = false;
       if (data.exists && data.plan) {
         existingPlanData = data.plan;
+        window._planReasonCache = window._planReasonCache || {};
+        window._planReasonCache[data.plan.id] = data.plan;
 
         // Auto-fill fields from existing plan
         if (data.plan.subject_code) document.getElementById('subjectCode').value = data.plan.subject_code;
@@ -662,6 +739,7 @@ async function triggerDuplicateCheck() {
 
         const isR1Approved = data.plan.submission_status === 'approved';
         const isR2Approved = data.plan.round_2_status === 'approved';
+        const isR2Revision = data.plan.round_2_status === 'revision_needed';
 
         banner.style.display = 'flex';
         const driveBtn = document.getElementById('btnViewExistingDrive');
@@ -680,17 +758,29 @@ async function triggerDuplicateCheck() {
           banner.style.background = '#fffbeb';
           document.getElementById('dupBannerTitle').innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color: #f59e0b;"></i> แผนการสอนครั้งที่ 1 ยังไม่ได้รับการอนุมัติสมบูรณ์';
           document.getElementById('dupBannerBody').innerHTML = `
-            พบแผนวิชา <strong>${data.plan.subject_code} - ${data.plan.subject_name}</strong> ในระบบ<br>
-            สถานะครั้งที่ 1: <strong>${getStatusLabel(data.plan.submission_status)}</strong> (ต้องรอให้อนุมัติครบทั้ง 5 ระดับก่อนจึงจะส่งครั้งที่ 2 ได้)
+            พบแผนวิชา <strong>${escapeHtml(data.plan.subject_code)} - ${escapeHtml(data.plan.subject_name)}</strong> ในระบบ<br>
+            สถานะครั้งที่ 1: ${getStatusBadge(data.plan.submission_status)} (ต้องรอให้อนุมัติครบทั้ง 5 ระดับก่อนจึงจะส่งครั้งที่ 2 ได้)
           `;
           feedback.className = 'input-feedback error';
           feedback.textContent = 'ยังไม่สามารถส่งครั้งที่ 2 ได้ เนื่องจากครั้งที่ 1 ยังอยู่ระหว่างการพิจารณา';
+        } else if (isR2Revision) {
+          banner.style.borderLeftColor = '#dc2626';
+          banner.style.background = '#fef2f2';
+          document.getElementById('dupBannerTitle').innerHTML = '<span style="color: #991b1b;"><i class="fa-solid fa-triangle-exclamation"></i> แผนการสอนครั้งที่ 2 ถูกตีกลับให้แก้ไข!</span>';
+          document.getElementById('dupBannerBody').innerHTML = `
+            วิชา <strong>${escapeHtml(data.plan.subject_code)} - ${escapeHtml(data.plan.subject_name)}</strong> ${getStatusBadge('revision_needed')}<br>
+            <div style="margin-top:8px; background:#ffffff; border:1px solid #fecaca; border-left:3px solid #dc2626; border-radius:8px; padding:8px 12px; color:#7f1d1d;">
+              <strong>สาเหตุที่ตีกลับ:</strong> ${escapeHtml(data.plan.reviewer_feedback || 'กรุณาตรวจสอบและแก้ไขเพิ่มเติม')}
+            </div>
+          `;
+          feedback.className = 'input-feedback error';
+          feedback.textContent = '⚠️ แผนครั้งที่ 2 ถูกตีกลับให้แก้ไข สามารถแนบไฟล์ใหม่หรือส่งครั้งที่ 2 อีกครั้ง';
         } else if (isR2Approved) {
           banner.style.borderLeftColor = '#10b981';
           banner.style.background = '#ecfdf5';
           document.getElementById('dupBannerTitle').innerHTML = '<i class="fa-solid fa-circle-check" style="color: #10b981;"></i> แผนการสอนนี้ได้รับการอนุมัติครั้งที่ 2 เรียบร้อยแล้ว';
           document.getElementById('dupBannerBody').innerHTML = `
-            วิชา <strong>${data.plan.subject_code} - ${data.plan.subject_name}</strong> ได้รับการอนุมัติครบสมบูรณ์ทั้ง 2 ครั้งแล้ว
+            วิชา <strong>${escapeHtml(data.plan.subject_code)} - ${escapeHtml(data.plan.subject_name)}</strong> ได้รับการอนุมัติครบสมบูรณ์ทั้ง 2 ครั้งแล้ว
           `;
           feedback.className = 'input-feedback success';
           feedback.textContent = '✓ แผนการสอนนี้ผ่านการอนุมัติครั้งที่ 2 เรียบร้อยแล้ว';
@@ -699,7 +789,7 @@ async function triggerDuplicateCheck() {
           banner.style.background = '#f0fdfa';
           document.getElementById('dupBannerTitle').innerHTML = '<i class="fa-solid fa-circle-check" style="color: #0d9488;"></i> พบแผนการสอนที่ผ่านครั้งที่ 1 แล้ว - พร้อมส่งครั้งที่ 2';
           document.getElementById('dupBannerBody').innerHTML = `
-            วิชา <strong>${data.plan.subject_code} - ${data.plan.subject_name}</strong> (ผ่านครั้งที่ 1 แล้ว)<br>
+            วิชา <strong>${escapeHtml(data.plan.subject_code)} - ${escapeHtml(data.plan.subject_name)}</strong> (ผ่านครั้งที่ 1 แล้ว)<br>
             <span style="font-size: 0.82rem; color: #0f766e;">ระบบจะนำไฟล์เดิมมาประทับตราต่อในช่อง ครั้งที่ 2 โดยอัตโนมัติ (หรือเลือกแนบไฟล์ใหม่ได้หากต้องการ)</span>
           `;
           feedback.className = 'input-feedback success';
@@ -723,18 +813,30 @@ async function triggerDuplicateCheck() {
       return;
     }
 
-    if (data.exists) {
+    if (data.exists && data.plan) {
       existingPlanData = data.plan;
+      existingPlanCanEdit = Boolean(data.canEdit);
+      window._planReasonCache = window._planReasonCache || {};
+      window._planReasonCache[data.plan.id] = data.plan;
+
+      const isRev1 = data.plan.submission_status === 'revision_needed';
+      const isRev2 = data.plan.round_2_status === 'revision_needed';
+      const isRevision = isRev1 || isRev2;
+
+      // Auto-fill fields if currently empty when editable plan exists
+      if (data.canEdit) {
+        const fillEmpty = (id, val) => {
+          const el = document.getElementById(id);
+          if (el && !el.value.trim() && val) el.value = val;
+        };
+        fillEmpty('subjectCode', data.plan.subject_code);
+        fillEmpty('subjectName', data.plan.subject_name);
+        fillEmpty('gradeLevel', data.plan.grade_level);
+        fillEmpty('teacherDepartment', data.plan.teacher_department);
+        fillEmpty('teacherName', data.plan.teacher_name);
+      }
 
       banner.style.display = 'flex';
-      banner.style.borderLeftColor = '#2563eb';
-      banner.style.background = '#eff6ff';
-      document.getElementById('dupBannerTitle').textContent = data.message;
-      document.getElementById('dupBannerBody').innerHTML = `
-        ท่านได้ส่งแผนวิชา <strong>${data.plan.subject_code} - ${data.plan.subject_name}</strong> ไว้แล้ว<br>
-        สถานะ: <strong>${getStatusLabel(data.plan.submission_status)}</strong> (ส่งเมื่อ: ${formatDate(data.plan.created_at)})
-      `;
-
       const driveBtn = document.getElementById('btnViewExistingDrive');
       if (data.plan.google_drive_view_link) {
         driveBtn.href = data.plan.google_drive_view_link;
@@ -743,20 +845,84 @@ async function triggerDuplicateCheck() {
         driveBtn.style.display = 'none';
       }
 
+      const modeBadge = document.getElementById('modeBadge');
+      const fileMarker = document.getElementById('fileRequiredMarker');
       const editBtn = document.getElementById('btnEditExistingBanner');
+
+      if (isRevision) {
+        banner.style.borderLeftColor = '#dc2626';
+        banner.style.background = '#fef2f2';
+        const revBy = data.plan.reviewed_by || data.plan.current_reviewer_title || 'ผู้ตรวจพิจารณา';
+        const revReason = data.plan.reviewer_feedback || 'กรุณาตรวจสอบและแก้ไขปรับปรุงเพิ่มเติม';
+
+        document.getElementById('dupBannerTitle').innerHTML = `<span style="color: #991b1b;"><i class="fa-solid fa-triangle-exclamation"></i> แผนการสอนของคุณถูกตีกลับให้แก้ไข!</span>`;
+        document.getElementById('dupBannerBody').innerHTML = `
+          วิชา <strong>${escapeHtml(data.plan.subject_code)} - ${escapeHtml(data.plan.subject_name)}</strong><br>
+          สถานะปัจจุบัน: ${getStatusBadge('revision_needed')}
+          ${data.plan.file_original_name ? `<div style="margin-top:4px; font-size:0.82rem; color:#475569;">ไฟล์เดิม: <strong>${escapeHtml(data.plan.file_original_name)}</strong> (ส่งเมื่อ: ${formatDate(data.plan.created_at)})</div>` : ''}
+          <div style="margin-top:8px; background:#ffffff; border:1px solid #fecaca; border-left:4px solid #dc2626; border-radius:8px; padding:10px 12px; color:#7f1d1d;">
+            <strong><i class="fa-solid fa-comment-dots"></i> สาเหตุที่ตีกลับ (${escapeHtml(revBy)}):</strong><br>
+            ${escapeHtml(revReason)}
+          </div>
+          <div style="margin-top:6px;">
+            <button type="button" class="btn btn-sm btn-outline" style="border-color:#dc2626; color:#dc2626; font-size:0.78rem;" onclick="showRevisionReasonById('${data.plan.id}', true)">
+              <i class="fa-solid fa-magnifying-glass"></i> ดูรายละเอียดการตีกลับ
+            </button>
+          </div>
+        `;
+        if (modeBadge) {
+          modeBadge.textContent = 'ถูกตีกลับให้แก้ไข';
+          modeBadge.className = 'badge badge-revision_needed';
+        }
+      } else {
+        banner.style.borderLeftColor = '#2563eb';
+        banner.style.background = '#eff6ff';
+        document.getElementById('dupBannerTitle').textContent = data.message;
+        document.getElementById('dupBannerBody').innerHTML = `
+          ท่านได้ส่งแผนวิชา <strong>${escapeHtml(data.plan.subject_code)} - ${escapeHtml(data.plan.subject_name)}</strong> ไว้แล้ว<br>
+          สถานะปัจจุบัน: ${getStatusBadge(data.plan.submission_status)} (ส่งเมื่อ: ${formatDate(data.plan.created_at)})
+          ${data.canEdit && data.plan.file_original_name ? `<div style="margin-top:4px; font-size:0.82rem; color:#1e40af;">ไฟล์เดิมในระบบ: <strong>${escapeHtml(data.plan.file_original_name)}</strong> (หากแนบไฟล์ใหม่ด้านล่าง ระบบจะลบไฟล์เดิมและบันทึกไฟล์ใหม่แทนที่)</div>` : ''}
+        `;
+        if (modeBadge && data.canEdit) {
+          modeBadge.textContent = 'มีแผนในระบบแล้ว (แก้ไขได้)';
+          modeBadge.className = 'badge badge-under_review';
+        }
+      }
+
       if (data.canEdit) {
         editBtn.style.display = 'inline-flex';
+        editBtn.innerHTML = '<i class="fa-solid fa-pen-to-square"></i> แก้ไข / แนบไฟล์ใหม่แทนที่เดิม';
+        if (existingFileBar && existingFileNameText) {
+          existingFileNameText.textContent = data.plan.file_original_name || 'ไฟล์แผนการสอนเดิม.pdf';
+          existingFileBar.style.display = 'block';
+        }
+        if (fileMarker) {
+          fileMarker.innerHTML = '<span style="font-size: 0.8rem; color: #b45309; font-weight: normal;">(เลือกไฟล์ PDF ใหม่เพื่อลบไฟล์เดิมและบันทึกแทนที่)</span>';
+        }
         feedback.className = 'input-feedback error';
-        feedback.textContent = 'พบแผนการสอนเดิมในระบบ (สามารถแก้ไขหรือส่งฉบับปรับปรุงได้)';
+        feedback.textContent = isRevision
+          ? '⚠️ แผนการสอนของคุณถูกตีกลับให้แก้ไข สามารถแนบไฟล์ใหม่ด้านล่างเพื่อแก้ไขแทนที่ไฟล์เดิมได้เลย'
+          : 'พบแผนการสอนเดิมในระบบ (สามารถกดแก้ไข หรือแนบไฟล์ใหม่เพื่อลบไฟล์เดิมและบันทึกแทนที่ได้)';
       } else {
         editBtn.style.display = 'none';
+        if (existingFileBar) existingFileBar.style.display = 'none';
+        if (fileMarker) fileMarker.textContent = '*';
         feedback.className = 'input-feedback error';
         feedback.textContent = 'คุณส่งแผนสำหรับภาคเรียนนี้ไปแล้ว และไม่อยู่ในสถานะที่แก้ไขได้';
       }
 
     } else {
       banner.style.display = 'none';
+      if (existingFileBar) existingFileBar.style.display = 'none';
       existingPlanData = null;
+      existingPlanCanEdit = false;
+      const modeBadge = document.getElementById('modeBadge');
+      if (modeBadge) {
+        modeBadge.textContent = 'ส่งใหม่';
+        modeBadge.className = 'badge badge-submitted';
+      }
+      const fileMarker = document.getElementById('fileRequiredMarker');
+      if (fileMarker) fileMarker.textContent = '*';
       feedback.className = 'input-feedback success';
       feedback.textContent = '✓ อีเมลนี้ยังไม่มีประวัติการส่งในภาคเรียนที่เลือก สามารถส่งได้';
     }
@@ -858,6 +1024,13 @@ async function handleFormSubmit(e) {
   const roundRadio = document.querySelector('input[name="submission_round"]:checked');
   const subRound = roundRadio ? parseInt(roundRadio.value, 10) : (typeof currentSubmissionRound !== 'undefined' ? currentSubmissionRound : 1);
 
+  if (!isEditMode && subRound === 1 && existingPlanData && existingPlanData.id && existingPlanCanEdit) {
+    isEditMode = true;
+    editingPlanId = existingPlanData.id;
+    const editIdEl = document.getElementById('editPlanId');
+    if (editIdEl) editIdEl.value = existingPlanData.id;
+  }
+
   if (!isEditMode && subRound !== 2 && !currentSelectedFile) {
     resetSubmitBtn();
     Swal.fire({
@@ -867,6 +1040,44 @@ async function handleFormSubmit(e) {
       confirmButtonColor: '#2563eb'
     });
     return;
+  }
+
+  if (isEditMode && subRound === 1) {
+    const planSubject = `${subjectCode} - ${subjectName}`.trim();
+    const oldFileLabel = (existingPlanData && existingPlanData.file_original_name) ? existingPlanData.file_original_name : 'ไฟล์เดิมในระบบ';
+    const confirmHtml = currentSelectedFile
+      ? `<div style="text-align:left; font-size:0.9rem; line-height:1.6; color:#334155;">
+           <div><strong>รายวิชา:</strong> ${escapeHtml(planSubject)}</div>
+           <div style="margin-top:8px; background:#fffbeb; border:1px solid #fde68a; border-left:4px solid #f59e0b; border-radius:8px; padding:10px 12px; color:#78350f;">
+             <i class="fa-solid fa-triangle-exclamation"></i> ระบบจะทำการ <strong>ลบไฟล์เดิม</strong> (<code>${escapeHtml(oldFileLabel)}</code>) ออก<br>
+             และบันทึกไฟล์ใหม่ (<code>${escapeHtml(currentSelectedFile.name)}</code>) เข้าไปแทนที่ พร้อมส่งเข้าตรวจใหม่<br><br>
+             <strong>คุณต้องการยืนยันการแก้ไขหรือไม่?</strong>
+           </div>
+         </div>`
+      : `<div style="text-align:left; font-size:0.9rem; line-height:1.6; color:#334155;">
+           <div><strong>รายวิชา:</strong> ${escapeHtml(planSubject)}</div>
+           <div style="margin-top:8px; background:#eff6ff; border:1px solid #bfdbfe; border-left:4px solid #2563eb; border-radius:8px; padding:10px 12px; color:#1e3a8a;">
+             คุณไม่ได้แนบไฟล์ PDF ใหม่ ระบบจะบันทึกข้อมูลที่แก้ไขและใช้ไฟล์เดิม (<code>${escapeHtml(oldFileLabel)}</code>) พร้อมส่งเข้าตรวจใหม่<br><br>
+             <strong>คุณต้องการยืนยันการแก้ไขหรือไม่?</strong>
+           </div>
+         </div>`;
+
+    const confirmEdit = await Swal.fire({
+      icon: 'question',
+      title: 'ยืนยันการแก้ไขแผนการสอน?',
+      html: confirmHtml,
+      showCancelButton: true,
+      confirmButtonText: '<i class="fa-solid fa-check"></i> ยืนยันการแก้ไข',
+      cancelButtonText: 'ยกเลิก',
+      confirmButtonColor: '#2563eb',
+      cancelButtonColor: '#64748b',
+      reverseButtons: true
+    });
+
+    if (!confirmEdit.isConfirmed) {
+      resetSubmitBtn();
+      return;
+    }
   }
 
   const signatureData = signaturePad.toDataURL('image/png');
@@ -890,7 +1101,7 @@ async function handleFormSubmit(e) {
     if (!existingPlanData || !existingPlanData.id) {
       try {
         const chkRes = await fetch(`/api/plans/check-duplicate?email=${encodeURIComponent(teacherEmail)}&term_id=${encodeURIComponent(termId)}`);
-        const chkData = await chkRes.json();
+        const chkData = await safeJson(chkRes);
         if (chkData && chkData.exists && chkData.plan) {
           existingPlanData = chkData.plan;
         }
@@ -1012,7 +1223,7 @@ async function handleFormSubmit(e) {
         method: 'POST',
         body: r2FormData
       });
-      const r2Json = await r2Res.json();
+      const r2Json = await safeJson(r2Res);
       if (!r2Res.ok || !r2Json.success) {
         throw new Error(r2Json.message || 'ไม่สามารถส่งครั้งที่ 2 ได้');
       }
@@ -1038,6 +1249,7 @@ async function handleFormSubmit(e) {
     return;
   }
 
+  const wasEditMode = isEditMode;
   openQueueModal();
   updateQueueUI({ status: 'validating', progress: 25, message: 'กำลังตรวจสอบไฟล์และข้อมูล...' });
 
@@ -1140,14 +1352,14 @@ async function handleFormSubmit(e) {
   const url = isEditMode ? `/api/plans/${editingPlanId}` : '/api/plans/submit';
   const method = 'POST'; // Always use POST for multipart/form-data so PHP populates $_POST and $_FILES
 
-  updateQueueUI({ status: 'uploading_drive', progress: 55, message: 'กำลังนำส่งไฟล์ขึ้น Google Drive และจัดระเบียบโฟลเดอร์...' });
+  updateQueueUI({ status: 'uploading_drive', progress: 55, message: wasEditMode ? 'กำลังลบไฟล์เดิมและบันทึกไฟล์ใหม่ขึ้นระบบ...' : 'กำลังนำส่งไฟล์ขึ้น Google Drive และจัดระเบียบโฟลเดอร์...' });
 
   // Dynamic progress ticker to keep UI lively and prevent perception of freezing
   let currentProgress = 55;
   const progressTicker = setInterval(() => {
     if (currentProgress < 92) {
       currentProgress += 7;
-      let msg = 'กำลังนำส่งไฟล์ขึ้น Google Drive และบันทึกข้อมูล...';
+      let msg = wasEditMode ? 'กำลังแทนที่ไฟล์เดิมและอัปเดตข้อมูลแผนการสอน...' : 'กำลังนำส่งไฟล์ขึ้น Google Drive และบันทึกข้อมูล...';
       if (currentProgress >= 70) msg = 'กำลังจัดระเบียบโฟลเดอร์กลุ่มสาระฯ และออกรหัสกำกับเอกสาร...';
       if (currentProgress >= 85) msg = 'กำลังบันทึกประวัติการส่งและประสานงานระบบอนุมัติ...';
       updateQueueUI({ status: 'uploading_drive', progress: currentProgress, message: msg });
@@ -1157,7 +1369,7 @@ async function handleFormSubmit(e) {
   try {
     const response = await fetch(url, { method, body: formData });
     clearInterval(progressTicker);
-    const result = await response.json();
+    const result = await safeJson(response);
 
     if (response.status === 409) {
       resetSubmitBtn();
@@ -1166,12 +1378,24 @@ async function handleFormSubmit(e) {
       return;
     }
 
-    if (!response.ok) {
+    if (!response.ok || result.success === false) {
       throw new Error(result.message || 'เกิดข้อผิดพลาดในการส่งข้อมูล');
     }
 
     if (result.jobId) {
       connectToJobEvents(result.jobId, result.planId);
+    } else if (wasEditMode) {
+      closeQueueModal();
+      await Swal.fire({
+        icon: 'success',
+        title: result.fileReplaced ? 'ลบไฟล์เดิมและบันทึกไฟล์ใหม่สำเร็จ!' : 'บันทึกการแก้ไขสำเร็จ!',
+        html: `<div style="font-size:0.92rem; color:#334155; line-height:1.6;">${escapeHtml(result.message || 'ลบไฟล์เดิมออกและบันทึกไฟล์แผนการสอนใหม่เรียบร้อยแล้ว')}<br><span style="font-size:0.82rem; color:#059669;">ระบบได้ส่งแผนฉบับปรับปรุงเข้าสู่ขั้นตอนการตรวจใหม่แล้ว</span></div>`,
+        confirmButtonColor: '#10b981',
+        confirmButtonText: 'ตกลง'
+      });
+      resetSubmissionForm();
+      loadAdminPlans();
+      if (currentUser && currentUser.email) searchTeacherHistory(false);
     } else {
       // Synchronous Flow: complete to 100%
       updateQueueUI({
@@ -1226,7 +1450,7 @@ async function pollJobStatus(jobId, planId) {
   const interval = setInterval(async () => {
     try {
       const res = await fetch(`/api/jobs/${jobId}/status`);
-      const json = await res.json();
+      const json = await safeJson(res);
       if (json.success && json.data) {
         updateQueueUI(json.data, planId);
         if (json.data.status === 'completed' || json.data.status === 'failed') {
@@ -1326,7 +1550,10 @@ function resetSubmissionForm() {
   clearSelectedFile();
   document.getElementById('duplicateAlertBanner').style.display = 'none';
   document.getElementById('emailFeedback').textContent = '';
+  const existingFileBar = document.getElementById('existingFileInfoBar');
+  if (existingFileBar) existingFileBar.style.display = 'none';
   existingPlanData = null;
+  existingPlanCanEdit = false;
   updateUserUI();
 }
 
@@ -1353,8 +1580,9 @@ function showDuplicateModal(res) {
 
   if (res.canEdit) {
     editBtn.style.display = 'inline-flex';
-    notice.textContent = 'แผนการสอนนี้อยู่ในสถานะที่สามารถแก้ไข / ส่งฉบับปรับปรุงได้';
+    notice.textContent = 'แผนการสอนนี้อยู่ในสถานะที่สามารถแก้ไข / แนบไฟล์ใหม่แทนที่ได้';
     existingPlanData = plan;
+    existingPlanCanEdit = true;
   } else {
     editBtn.style.display = 'none';
     notice.textContent = 'แผนการสอนนี้ได้รับการบันทึกหรืออนุมัติแล้ว จึงไม่สามารถส่งใหม่หรือแก้ไขซ้ำได้';
@@ -1383,6 +1611,8 @@ async function loadPlanIntoEditMode(planOrId) {
   editingPlanId = planId;
 
   try {
+    clearSelectedFile();
+
     // 1. Snapshot / Archive current version and status before editing
     let snapVerNum = 1;
     try {
@@ -1391,7 +1621,7 @@ async function loadPlanIntoEditMode(planOrId) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'ก่อนเริ่มแก้ไขแผนการสอน / ส่งฉบับปรับปรุง' })
       });
-      const snapJson = await snapRes.json();
+      const snapJson = await safeJson(snapRes);
       if (snapJson.success && snapJson.data) {
         snapVerNum = snapJson.data.versionNumber;
       }
@@ -1400,9 +1630,12 @@ async function loadPlanIntoEditMode(planOrId) {
     }
 
     const res = await fetch(`/api/plans/${planId}`);
-    const json = await res.json();
+    const json = await safeJson(res);
     const p = json.data || (typeof planOrId === 'object' ? planOrId : null);
     if (!p) throw new Error('ไม่พบข้อมูลแผนการสอน');
+
+    existingPlanData = p;
+    existingPlanCanEdit = true;
 
     const setVal = (id, val) => {
       const el = document.getElementById(id);
@@ -1418,16 +1651,22 @@ async function loadPlanIntoEditMode(planOrId) {
     setVal('subjectCode', p.subject_code);
     setVal('subjectName', p.subject_name);
 
+    const isRev = p.submission_status === 'revision_needed' || p.round_2_status === 'revision_needed';
+    const revReasonHtml = (isRev && p.reviewer_feedback)
+      ? `<div style="margin-top:6px; background:#fef2f2; border:1px solid #fecaca; border-left:3px solid #dc2626; padding:6px 10px; border-radius:6px; color:#991b1b; font-size:0.82rem;"><strong><i class="fa-solid fa-triangle-exclamation"></i> สาเหตุที่ตีกลับ:</strong> ${escapeHtml(p.reviewer_feedback)}</div>`
+      : '';
+
     const editNotice = document.getElementById('editModeNotice');
     if (editNotice) {
       editNotice.style.display = 'flex';
       editNotice.innerHTML = `
         <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 8px;">
           <div>
-            <i class="fa-solid fa-pen-to-square"></i> กำลังแก้ไขแผนการสอน: <strong>${p.subject_code || ''} - ${p.subject_name || ''}</strong>
+            <i class="fa-solid fa-pen-to-square"></i> กำลังแก้ไขแผนการสอน: <strong>${escapeHtml(p.subject_code || '')} - ${escapeHtml(p.subject_name || '')}</strong>
             <div style="font-size: 0.82rem; color: #0d9488; margin-top: 3px;">
-              <i class="fa-solid fa-clock-rotate-left"></i> สำรองประวัติสถานะและไฟล์เวอร์ชันเดิม (V.${snapVerNum}) ไว้เรียบร้อยแล้ว ท่านสามารถแก้ไขหรือแนบไฟล์ใหม่ได้อย่างปลอดภัย
+              <i class="fa-solid fa-clock-rotate-left"></i> สำรองเวอร์ชันเดิม (V.${snapVerNum}) ไว้แล้ว • หากแนบไฟล์ PDF ใหม่ ระบบจะลบไฟล์เดิม (<code>${escapeHtml(p.file_original_name || 'ไฟล์เดิม')}</code>) ออกและบันทึกไฟล์ใหม่แทนที่
             </div>
+            ${revReasonHtml}
           </div>
           <button type="button" class="btn btn-sm btn-outline" onclick="cancelEditMode()" style="border-radius: var(--radius-full); font-size: 0.8rem;">
             <i class="fa-solid fa-xmark"></i> ยกเลิกโหมดแก้ไข
@@ -1436,17 +1675,24 @@ async function loadPlanIntoEditMode(planOrId) {
       `;
     }
 
+    const existingFileBar = document.getElementById('existingFileInfoBar');
+    const existingFileNameText = document.getElementById('existingFileNameText');
+    if (existingFileBar && existingFileNameText && p.file_original_name) {
+      existingFileNameText.textContent = p.file_original_name;
+      existingFileBar.style.display = 'block';
+    }
+
     const modeBadge = document.getElementById('modeBadge');
     if (modeBadge) {
-      modeBadge.textContent = 'โหมดแก้ไข';
-      modeBadge.className = 'badge badge-under_review';
+      modeBadge.textContent = isRev ? 'แก้ไขแผนที่ถูกตีกลับ' : 'โหมดแก้ไข';
+      modeBadge.className = isRev ? 'badge badge-revision_needed' : 'badge badge-under_review';
     }
 
     const fileMarker = document.getElementById('fileRequiredMarker');
-    if (fileMarker) fileMarker.textContent = '(เลือกไฟล์ใหม่เฉพาะเมื่อต้องการเปลี่ยน)';
+    if (fileMarker) fileMarker.innerHTML = '<span style="font-size: 0.8rem; color: #b45309; font-weight: normal;">(เลือกไฟล์ PDF ใหม่เพื่อลบไฟล์เดิมและบันทึกแทนที่)</span>';
 
     const submitBtn = document.getElementById('btnSubmitPlan');
-    if (submitBtn) submitBtn.innerHTML = '<i class="fa-solid fa-save"></i> บันทึกและส่งฉบับปรับปรุง';
+    if (submitBtn) submitBtn.innerHTML = '<i class="fa-solid fa-save"></i> ยืนยันแก้ไขและบันทึกแผนการสอน';
 
     const headerTitle = document.getElementById('formHeaderTitle');
     if (headerTitle) headerTitle.textContent = 'แก้ไข / ส่งแผนการสอนฉบับปรับปรุง';
@@ -1460,14 +1706,16 @@ async function loadPlanIntoEditMode(planOrId) {
 
     Swal.fire({
       icon: 'success',
-      title: 'สำรองเวอร์ชันเดิมเรียบร้อยแล้ว',
-      html: `ระบบได้บันทึกสำรอง <strong>เวอร์ชัน ${snapVerNum} (สถานะ: ${getStatusLabel(p.submission_status)})</strong> ไว้ในประวัติแล้ว<br><span style="font-size: 0.85rem; color: #475569;">ท่านสามารถเริ่มแก้ไขข้อมูลหรือแนบไฟล์ใหม่ได้ทันที</span>`,
+      title: 'พร้อมแก้ไขแผนการสอนแล้ว',
+      html: `ระบบได้สำรอง <strong>เวอร์ชัน ${snapVerNum} (${escapeHtml(getStatusLabel(p.submission_status))})</strong> ไว้ในประวัติแล้ว<br><span style="font-size: 0.85rem; color: #475569;">ท่านสามารถแนบไฟล์ PDF ใหม่เพื่อลบไฟล์เดิมและบันทึกแทนที่ได้ทันที</span>`,
       timer: 3000,
       timerProgressBar: true,
       showConfirmButton: false
     });
   } catch (e) {
     console.error('Failed to load plan into edit:', e);
+    isEditMode = false;
+    editingPlanId = null;
     Swal.fire({
       icon: 'error',
       title: 'ไม่สามารถโหลดแผนเพื่อแก้ไขได้',
@@ -1486,6 +1734,9 @@ function cancelEditMode() {
   const editNotice = document.getElementById('editModeNotice');
   if (editNotice) editNotice.style.display = 'none';
 
+  const existingFileBar = document.getElementById('existingFileInfoBar');
+  if (existingFileBar) existingFileBar.style.display = 'none';
+
   const modeBadge = document.getElementById('modeBadge');
   if (modeBadge) {
     modeBadge.textContent = 'ส่งใหม่';
@@ -1499,7 +1750,12 @@ function cancelEditMode() {
   if (submitBtn) submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> ยืนยันและส่งแผนการสอน';
 
   const headerTitle = document.getElementById('formHeaderTitle');
-  if (headerTitle) headerTitle.textContent = 'ส่งแผนการสอนประจำภาคเรียน';
+  if (headerTitle) headerTitle.textContent = 'ระบบส่งแผนการสอนออนไลน์ โรงเรียนสระหลวงพิทยาคม';
+
+  const emailEl = document.getElementById('teacherEmail');
+  if (emailEl && emailEl.value && emailEl.value.includes('@')) {
+    triggerDuplicateCheck();
+  }
 }
 
 // -------------------------------------------------------------
@@ -1613,10 +1869,10 @@ async function openTimelineModal(planId) {
 
   try {
     const res = await fetch(`/api/plans/${planId}/timeline`);
-    const json = await res.json();
+    const json = await safeJson(res);
 
     if (!json.success || !json.data) {
-      list.innerHTML = '<div class="alert-card alert-danger">ไม่สามารถโหลดไทม์ไลน์ได้</div>';
+      list.innerHTML = `<div class="alert-card alert-danger">${escapeHtml(json.message || 'ไม่สามารถโหลดไทม์ไลน์ได้')}</div>`;
       return;
     }
 
@@ -1630,10 +1886,10 @@ async function openTimelineModal(planId) {
     badge.textContent = `${plan.subject_code || '-'} ${plan.teacher_name ? '(' + plan.teacher_name + ')' : ''}`;
 
     // Banner message indicating current reviewer
-    if (plan.submission_status === 'approved') {
+    if (plan.submission_status === 'approved' && plan.round_2_status !== 'revision_needed') {
       banner.innerHTML = '🎉 อนุมัติเสร็จสมบูรณ์เรียบร้อยแล้ว';
-    } else if (plan.submission_status === 'revision_needed') {
-      banner.innerHTML = '⚠️ ถูกส่งกลับแก้ไข — รอครูผู้สอนปรับปรุงข้อมูล';
+    } else if (plan.submission_status === 'revision_needed' || plan.round_2_status === 'revision_needed') {
+      banner.innerHTML = '⚠️ ถูกตีกลับให้แก้ไข — รอครูผู้สอนปรับปรุงข้อมูล';
     } else {
       banner.innerHTML = `⏳ ตอนนี้ถึง: <strong>${escapeHtml(plan.current_reviewer_title || 'หัวหน้ากลุ่มสาระการเรียนรู้')}</strong> กำลังตรวจสอบ`;
     }
@@ -1646,73 +1902,12 @@ async function openTimelineModal(planId) {
       driveBtn.style.display = 'none';
     }
 
-    // Role-specific avatar icons for 5 approval tiers
-    const roleAvatars = {
-      dept_head: '👩‍💼',
-      curriculum_head: '📋',
-      academic_head: '📚',
-      academic_director: '👨‍💼',
-      director: '🏛️'
-    };
-
-    // Render Timeline Steps
-    let stepsHtml = '';
-    timeline.forEach(step => {
-      let icon = '<i class="fa-solid fa-hourglass-start"></i>';
-      let statusLabel = 'รอตามลำดับ';
-      let badgeClass = 'badge-draft';
-      const roleAvatar = roleAvatars[step.stage_key] || '👤';
-
-      if (step.status === 'completed') {
-        icon = '<i class="fa-solid fa-check"></i>';
-        statusLabel = 'ผ่านการตรวจแล้ว';
-        badgeClass = 'badge-approved';
-      } else if (step.status === 'in_progress') {
-        icon = '<i class="fa-solid fa-spinner fa-spin"></i>';
-        statusLabel = '⏳ กำลังอยู่ระหว่างตรวจ';
-        badgeClass = 'badge-submitted';
-      } else if (step.status === 'revision_needed') {
-        icon = '<i class="fa-solid fa-triangle-exclamation"></i>';
-        statusLabel = '⚠️ ส่งกลับแก้ไข';
-        badgeClass = 'badge-revision_needed';
-      }
-
-      stepsHtml += `
-        <div class="timeline-step ${step.status}">
-          <div class="timeline-line"></div>
-          <div class="timeline-node">${icon}</div>
-          <div class="timeline-content">
-            <div class="timeline-header">
-              <span class="timeline-title">${roleAvatar} ${escapeHtml(step.stage_title)}</span>
-              <span class="badge ${badgeClass}">${statusLabel}</span>
-            </div>
-            <div class="timeline-desc">
-              ${step.reviewer_name ? `<strong>ผู้ดำเนินการ:</strong> ${escapeHtml(step.reviewer_name)}` : '<em>รอผู้ตรวจประจำขั้นดำเนินการ</em>'}
-              ${step.action_at ? `<span class="timeline-time" style="margin-left: 8px;">(${formatDate(step.action_at)})</span>` : ''}
-            </div>
-            ${step.feedback ? `
-              <div class="timeline-feedback-box">
-                <i class="fa-solid fa-comment-dots" style="margin-right: 4px;"></i>
-                <strong>ความเห็น:</strong> ${escapeHtml(step.feedback)}
-              </div>
-            ` : ''}
-            ${step.reviewer_signature ? `
-              <div style="margin-top: 6px;">
-                <span style="font-size: 0.72rem; color: #64748b;">ลายเซ็นผู้ตรวจ:</span><br>
-                <img src="${step.reviewer_signature}" alt="ลายมือชื่อผู้ตรวจ" style="height: 38px; border: 1px dashed #cbd5e1; border-radius: 4px; padding: 2px 6px; background: #fff;" />
-              </div>
-            ` : ''}
-          </div>
-        </div>
-      `;
-    });
-
     currentTimelinePlanData = json.data;
     const initialRound = (plan.current_round === 2 || plan.submission_status === 'approved') && plan.round_2_status && plan.round_2_status !== 'not_started' ? 2 : 1;
     switchTimelineRound(initialRound);
 
   } catch (err) {
-    list.innerHTML = `<div class="alert-card alert-danger">เกิดข้อผิดพลาด: ${err.message}</div>`;
+    list.innerHTML = `<div class="alert-card alert-danger">เกิดข้อผิดพลาด: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -1767,7 +1962,7 @@ function buildInlineTimelineHtml(timeline, currentStage, currentTitle, submissio
       itemClass = 'revision';
       chevronHtml = '<div class="stepper-chevron-indicator"><i class="fa-solid fa-chevron-down"></i></div>';
       circleContent = '!';
-      subText = '⚠️ ให้แก้ไข';
+      subText = '⚠️ ถูกตีกลับ';
     } else {
       itemClass = 'waiting';
       circleContent = stepNum;
@@ -1826,9 +2021,12 @@ async function searchTeacherHistory(isManualClick = true) {
 
   try {
     const res = await fetch(`/api/plans/teacher/${encodeURIComponent(email)}`);
-    const json = await res.json();
+    const json = await safeJson(res);
+
+    const trackTabBadge = document.getElementById('trackTabAlertBadge');
 
     if (!json.success || !json.data || json.data.length === 0) {
+      if (trackTabBadge) trackTabBadge.style.display = 'none';
       resultsArea.innerHTML = `
         <div class="preview-placeholder" style="padding: 3rem 1rem;">
           <i class="fa-regular fa-folder"></i>
@@ -1849,6 +2047,7 @@ async function searchTeacherHistory(isManualClick = true) {
     window._planReasonCache = window._planReasonCache || {};
     window._shownRevisionAlertIds = window._shownRevisionAlertIds || new Set();
     let unshownRevisionPlans = [];
+    let hasAnyRevisionPlan = false;
 
     json.data.forEach(p => {
       window._planReasonCache[p.id] = p;
@@ -1859,13 +2058,14 @@ async function searchTeacherHistory(isManualClick = true) {
       const isRev1 = p.submission_status === 'revision_needed';
       const isRev2 = p.round_2_status === 'revision_needed';
       const isAnyRev = isRev1 || isRev2;
+      if (isAnyRev) hasAnyRevisionPlan = true;
       if (isAnyRev && !window._shownRevisionAlertIds.has(p.id)) {
         unshownRevisionPlans.push(p);
       }
 
-      const canEdit = p.submission_status === 'draft' || p.submission_status === 'revision_needed';
+      const canEdit = ['draft', 'revision_needed', 'submitted', 'under_review'].includes(p.submission_status) || isRev2;
       const editBtn = canEdit 
-        ? `<button class="btn btn-sm btn-primary" style="border-radius: var(--radius-full); padding: 6px 16px; font-size: 0.82rem;" onclick="loadPlanIntoEditMode('${p.id}')"><i class="fa-solid fa-pen-to-square"></i> แก้ไข / ส่งฉบับปรับปรุง</button>`
+        ? `<button class="btn btn-sm ${isAnyRev ? 'btn-danger' : 'btn-primary'}" style="border-radius: var(--radius-full); padding: 6px 16px; font-size: 0.82rem;" onclick="loadPlanIntoEditMode('${p.id}')"><i class="fa-solid fa-pen-to-square"></i> ${isAnyRev ? 'แก้ไขแผนที่ถูกตีกลับ / แนบไฟล์ใหม่' : 'แก้ไข / เปลี่ยนไฟล์'}</button>`
         : '';
 
       // Live Reviewer Status Indicator
@@ -1873,7 +2073,7 @@ async function searchTeacherHistory(isManualClick = true) {
       if (p.submission_status === 'approved' && !isRev2) {
         livePill = `<div class="live-reviewer-pill approved"><i class="fa-solid fa-circle-check"></i> อนุมัติเสร็จสมบูรณ์เรียบร้อยแล้ว</div>`;
       } else if (isAnyRev) {
-        livePill = `<button type="button" onclick="showRevisionReasonById('${p.id}', true)" class="live-reviewer-pill revision" style="border:none;cursor:pointer;" title="คลิกเพื่อดูสาเหตุที่ตีกลับ"><i class="fa-solid fa-triangle-exclamation"></i> ส่งกลับแก้ไข (${escapeHtml(p.reviewed_by || p.current_reviewer_title || 'ผู้ตรวจ')}) — คลิกดูสาเหตุ</button>`;
+        livePill = `<button type="button" onclick="showRevisionReasonById('${p.id}', true)" class="live-reviewer-pill revision" style="border:none;cursor:pointer;" title="คลิกเพื่อดูสาเหตุที่ตีกลับ"><i class="fa-solid fa-triangle-exclamation"></i> ถูกตีกลับให้แก้ไข (${escapeHtml(p.reviewed_by || p.current_reviewer_title || 'ผู้ตรวจ')}) — คลิกดูสาเหตุ</button>`;
       } else {
         livePill = `
           <div class="live-reviewer-pill">
@@ -1887,7 +2087,7 @@ async function searchTeacherHistory(isManualClick = true) {
       const revisionReasonBox = isAnyRev ? `
         <div onclick="showRevisionReasonById('${p.id}', true)" style="cursor:pointer; margin: 10px 0; background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: 10px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
           <div style="font-size: 0.85rem; color: #7f1d1d;">
-            <strong style="color: #991b1b;"><i class="fa-solid fa-circle-exclamation"></i> สาเหตุที่ตีกลับ:</strong>
+            <strong style="color: #991b1b;"><i class="fa-solid fa-circle-exclamation"></i> สาเหตุที่ถูกตีกลับ:</strong>
             ${escapeHtml(p.reviewer_feedback || 'กรุณาตรวจสอบและแก้ไขปรับปรุงเพิ่มเติม')}
             ${p.reviewed_by ? `<span style="color:#b91c1c; font-size:0.78rem;"> (โดย ${escapeHtml(p.reviewed_by)})</span>` : ''}
           </div>
@@ -1898,8 +2098,18 @@ async function searchTeacherHistory(isManualClick = true) {
       // Inline Timeline 4-step Grid (Always visible!)
       const timelineHtml = buildInlineTimelineHtml(p.timeline, p.current_stage, p.current_reviewer_title);
 
+      const r1BadgeHtml = isRev1
+        ? `<span class="badge-round" style="background:#fef2f2; color:#dc2626; border:1px solid #fecaca; font-weight:700;"><i class="fa-solid fa-1"></i> ครั้งที่ 1: ⚠️ ถูกตีกลับให้แก้ไข</span>`
+        : `<span class="badge-round badge-round-1"><i class="fa-solid fa-1"></i> ครั้งที่ 1: ${getStatusLabel(p.submission_status)}</span>`;
+
+      const r2BadgeHtml = (p.round_2_status && p.round_2_status !== 'not_started')
+        ? (isRev2
+            ? `<span class="badge-round" style="background:#fef2f2; color:#dc2626; border:1px solid #fecaca; font-weight:700;"><i class="fa-solid fa-2"></i> ครั้งที่ 2: ⚠️ ถูกตีกลับให้แก้ไข</span>`
+            : `<span class="badge-round badge-round-2"><i class="fa-solid fa-2"></i> ครั้งที่ 2: ${getStatusLabel(p.round_2_status)}</span>`)
+        : `<span class="badge-round" style="background: #f1f5f9; color: #64748b; border: 1px dashed #cbd5e1;"><i class="fa-solid fa-2"></i> ครั้งที่ 2: ยังไม่ได้ส่ง</span>`;
+
       html += `
-        <div class="plan-card-item status-${p.submission_status || 'submitted'}">
+        <div class="plan-card-item status-${isAnyRev ? 'revision_needed' : (p.submission_status || 'submitted')}">
           <!-- Card Header -->
           <div class="plan-card-header">
             <div>
@@ -1925,11 +2135,8 @@ async function searchTeacherHistory(isManualClick = true) {
 
           <!-- Dual-Round Badges -->
           <div style="display: flex; gap: 8px; align-items: center; margin: 10px 0 6px 0; flex-wrap: wrap;">
-            <span class="badge-round badge-round-1"><i class="fa-solid fa-1"></i> ครั้งที่ 1: ${getStatusLabel(p.submission_status)}</span>
-            ${(p.round_2_status && p.round_2_status !== 'not_started') 
-              ? `<span class="badge-round badge-round-2"><i class="fa-solid fa-2"></i> ครั้งที่ 2: ${getStatusLabel(p.round_2_status)}</span>` 
-              : `<span class="badge-round" style="background: #f1f5f9; color: #64748b; border: 1px dashed #cbd5e1;"><i class="fa-solid fa-2"></i> ครั้งที่ 2: ยังไม่ได้ส่ง</span>`
-            }
+            ${r1BadgeHtml}
+            ${r2BadgeHtml}
           </div>
 
           <!-- Action Toolbar -->
@@ -1940,7 +2147,7 @@ async function searchTeacherHistory(isManualClick = true) {
             ${driveLink}
             ${editBtn}
             ${(!p.round_2_status || p.round_2_status === 'not_started' || p.round_2_status === 'revision_needed') ? `
-              <button type="button" class="btn-quick-round2" onclick="openRound2Modal('${p.id}', '${escapeHtml(p.subject_code)}', '${escapeHtml(p.subject_name)}')">
+              <button type="button" class="btn-quick-round2" onclick="openRound2Modal('${p.id}')">
                 <i class="fa-solid fa-signature"></i> ✍️ ส่ง/ลงนามครั้งที่ 2
               </button>
             ` : ''}
@@ -1948,6 +2155,10 @@ async function searchTeacherHistory(isManualClick = true) {
         </div>
       `;
     });
+
+    if (trackTabBadge && currentUser && currentUser.email && currentUser.email.toLowerCase() === email.toLowerCase()) {
+      trackTabBadge.style.display = hasAnyRevisionPlan ? 'inline-block' : 'none';
+    }
 
     resultsArea.innerHTML = html;
 
@@ -1959,7 +2170,7 @@ async function searchTeacherHistory(isManualClick = true) {
     }
 
   } catch (err) {
-    resultsArea.innerHTML = `<div class="alert-card alert-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล: ${err.message}</div>`;
+    resultsArea.innerHTML = `<div class="alert-card alert-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -1970,7 +2181,7 @@ window.showRevisionReasonById = function(planId, allowEditBtn = false) {
 
   const reason = p.reviewer_feedback || 'กรุณาตรวจสอบความถูกต้องและปรับปรุงแก้ไขเอกสารเพิ่มเติม';
   const revBy = p.reviewed_by || p.current_reviewer_title || 'ผู้ตรวจพิจารณา';
-  const canEdit = allowEditBtn && (p.submission_status === 'draft' || p.submission_status === 'revision_needed');
+  const canEdit = allowEditBtn && (['draft', 'revision_needed', 'submitted', 'under_review'].includes(p.submission_status) || p.round_2_status === 'revision_needed');
 
   Swal.fire({
     icon: 'warning',
@@ -2114,7 +2325,7 @@ async function loadAdminPlans() {
     }
 
     const res = await fetch(`/api/admin/plans?${params.toString()}`);
-    const json = await res.json();
+    const json = await safeJson(res);
 
     // Update Counts & Badges dynamically for this role
     if (json.counts) {
@@ -2130,7 +2341,12 @@ async function loadAdminPlans() {
       const badgeTotal = document.getElementById('tabBadgeTotal'); if (badgeTotal) badgeTotal.textContent = json.counts.total || 0;
     }
 
-    if (!json.success || !json.data || json.data.length === 0) {
+    if (!json.success) {
+      tbody.innerHTML = `<tr><td colspan="7" style="color: #dc2626; text-align: center; padding: 2rem;">เกิดข้อผิดพลาด: ${escapeHtml(json.message || 'ไม่สามารถโหลดข้อมูลได้')}</td></tr>`;
+      return;
+    }
+
+    if (!json.data || json.data.length === 0) {
       let emptyMsg = 'ไม่พบรายการแผนการสอนตามเงื่อนไขที่เลือก';
       if (currentAdminFilterMode === 'my_turn') {
         emptyMsg = '🎉 ยอดเยี่ยม! ไม่มีแผนการสอนค้างตรวจในขั้นตอนของท่านในขณะนี้';
@@ -2206,7 +2422,7 @@ async function loadAdminPlans() {
             titleText = `${step.stage_title}: ⏳ กำลังตรวจอยู่`;
           } else if (step.status === 'revision_needed') {
             dotColor = '#ef4444';
-            titleText = `${step.stage_title}: ⚠️ ส่งกลับแก้ไข`;
+            titleText = `${step.stage_title}: ⚠️ ถูกตีกลับให้แก้ไข`;
           }
 
           miniTimelineHtml += `
@@ -2217,6 +2433,36 @@ async function loadAdminPlans() {
       }
       miniTimelineHtml += '</div>';
 
+      // Status Column Display (clearly indicate when returned for revision)
+      let stageStatusHtml = '';
+      if (activeStatus === 'revision_needed') {
+        const revRoundLabel = activeRound === 2 ? 'ครั้งที่ 2' : 'ครั้งที่ 1';
+        stageStatusHtml = `
+          <div style="font-weight: 700; font-size: 0.82rem; color: #dc2626; cursor: pointer;" onclick="showRevisionReasonById('${p.id}', false)" title="คลิกเพื่อดูสาเหตุที่ตีกลับ">
+            <i class="fa-solid fa-triangle-exclamation"></i> ${revRoundLabel}: ถูกตีกลับให้แก้ไข
+          </div>
+          ${p.reviewer_feedback ? `<div style="font-size: 0.74rem; color: #991b1b; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;" title="${escapeHtml(p.reviewer_feedback)}">สาเหตุ: ${escapeHtml(p.reviewer_feedback)}</div>` : ''}
+        `;
+      } else if (r1Approved && r2Approved) {
+        stageStatusHtml = `
+          <div style="font-weight: 700; font-size: 0.82rem; color: #059669;">
+            <i class="fa-solid fa-circle-check"></i> อนุมัติครบ 2 ครั้งแล้ว
+          </div>
+        `;
+      } else if (r1Approved && !hasRound2) {
+        stageStatusHtml = `
+          <div style="font-weight: 700; font-size: 0.82rem; color: #059669;">
+            <i class="fa-solid fa-circle-check"></i> ผ่านครั้งที่ 1 แล้ว
+          </div>
+        `;
+      } else {
+        stageStatusHtml = `
+          <div style="font-weight: 600; font-size: 0.82rem; color: #1e40af;">
+            <i class="fa-solid fa-user-clock"></i> ${activeRound === 2 ? 'ครั้งที่ 2 ถึง: ' : 'ครั้งที่ 1 ถึง: '}${escapeHtml(currentStageName)}
+          </div>
+        `;
+      }
+
       // Action Button & Badge Logic:
       let actionButtonHtml = '';
       if (r1Approved && r2Approved) {
@@ -2225,7 +2471,7 @@ async function loadAdminPlans() {
         actionButtonHtml = `<span class="badge badge-approved" style="font-size: 0.8rem; padding: 6px 12px;"><i class="fa-solid fa-circle-check"></i> ผ่านครั้งที่ 1 (รอส่งครั้งที่ 2)</span>`;
       } else if (activeStatus === 'revision_needed') {
         const roundSuffix = activeRound === 2 ? ' (ครั้งที่ 2)' : ' (ครั้งที่ 1)';
-        actionButtonHtml = `<button type="button" onclick="showRevisionReasonById('${p.id}', false)" class="badge badge-revision_needed" style="font-size: 0.8rem; padding: 6px 12px; border:none; cursor:pointer;" title="คลิกเพื่อดูสาเหตุที่ตีกลับ"><i class="fa-solid fa-rotate-left"></i> ส่งกลับแล้ว${roundSuffix} (ดูสาเหตุ)</button>`;
+        actionButtonHtml = `<button type="button" onclick="showRevisionReasonById('${p.id}', false)" class="badge badge-revision_needed" style="font-size: 0.8rem; padding: 6px 12px; border:none; cursor:pointer;" title="คลิกเพื่อดูสาเหตุที่ตีกลับ"><i class="fa-solid fa-rotate-left"></i> ถูกตีกลับให้แก้ไข${roundSuffix} (ดูสาเหตุ)</button>`;
       } else if (isUserTurn) {
         const roundLabel = activeRound === 2 ? 'ครั้งที่ 2' : 'ครั้งที่ 1';
         actionButtonHtml = `
@@ -2267,9 +2513,7 @@ async function loadAdminPlans() {
             <span style="font-size: 0.8rem; color: #475569;">${escapeHtml(p.subject_name)}</span>
           </td>
           <td>
-            <div style="font-weight: 600; font-size: 0.82rem; color: #1e40af;">
-              <i class="fa-solid fa-user-clock"></i> ${activeRound === 2 ? 'ครั้งที่ 2 ถึง: ' : 'ครั้งที่ 1 ถึง: '}${escapeHtml(currentStageName)}
-            </div>
+            ${stageStatusHtml}
             ${miniTimelineHtml}
           </td>
           <td class="col-gdrive">${driveHtml}</td>
@@ -2283,7 +2527,7 @@ async function loadAdminPlans() {
               </a>
               ${actionButtonHtml}
               ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'director') ? `
-                <button type="button" class="btn-action-icon delete-btn" onclick="confirmDeletePlan('${p.id}', '${escapeHtml(p.teacher_name)}', '${escapeHtml(p.subject_code)}')" style="color: #ef4444; border-color: #fca5a5; background: #fff5f5;" title="ลบแผนการสอน (ทั้งในฐานข้อมูลและ Drive)">
+                <button type="button" class="btn-action-icon delete-btn" onclick="confirmDeletePlan('${p.id}')" style="color: #ef4444; border-color: #fca5a5; background: #fff5f5;" title="ลบแผนการสอน (ทั้งในฐานข้อมูลและ Drive)">
                   <i class="fa-solid fa-trash-can"></i>
                 </button>
               ` : ''}
@@ -2296,7 +2540,7 @@ async function loadAdminPlans() {
     tbody.innerHTML = rows;
 
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" style="color: #dc2626; text-align: center;">เกิดข้อผิดพลาด: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="color: #dc2626; text-align: center;">เกิดข้อผิดพลาด: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -2311,7 +2555,7 @@ window.syncSinglePlanDrive = async function(planId) {
 
   try {
     const res = await fetch(`/api/plans/${planId}/sync-drive`, { method: 'POST' });
-    const json = await res.json();
+    const json = await safeJson(res);
     if (json.success) {
       await Swal.fire({
         icon: 'success',
@@ -2339,9 +2583,14 @@ window.syncSinglePlanDrive = async function(planId) {
 
 // Global Plan Delete Handler (Admin Only)
 window.confirmDeletePlan = async function(planId, teacherName, subjectCode) {
+  const cached = (window._planReasonCache && window._planReasonCache[planId])
+    || (window.adminPlansCache && window.adminPlansCache.find(x => x.id === planId));
+  const tName = teacherName || (cached ? cached.teacher_name : 'ครูผู้สอน');
+  const sCode = subjectCode || (cached ? cached.subject_code : 'แผนการสอน');
+
   const result = await Swal.fire({
     title: 'ยืนยันการลบแผนการสอน?',
-    html: `คุณต้องการลบแผนการสอนวิชา <strong>${escapeHtml(subjectCode)}</strong> ของ <strong>${escapeHtml(teacherName)}</strong> ใช่หรือไม่?<br><br><span style="font-size: 0.88rem; color: #dc2626; background: #fef2f2; padding: 6px 12px; border-radius: 6px; display: inline-block; border: 1px solid #fecaca;"><i class="fa-solid fa-triangle-exclamation"></i> ระบบจะลบข้อมูลออกจากฐานข้อมูล และลบไฟล์ PDF บน Google Drive ออกให้อัตโนมัติ</span>`,
+    html: `คุณต้องการลบแผนการสอนวิชา <strong>${escapeHtml(sCode)}</strong> ของ <strong>${escapeHtml(tName)}</strong> ใช่หรือไม่?<br><br><span style="font-size: 0.88rem; color: #dc2626; background: #fef2f2; padding: 6px 12px; border-radius: 6px; display: inline-block; border: 1px solid #fecaca;"><i class="fa-solid fa-triangle-exclamation"></i> ระบบจะลบข้อมูลออกจากฐานข้อมูล และลบไฟล์ PDF บน Google Drive ออกให้อัตโนมัติ</span>`,
     icon: 'warning',
     showCancelButton: true,
     confirmButtonColor: '#dc2626',
@@ -2362,7 +2611,7 @@ window.confirmDeletePlan = async function(planId, teacherName, subjectCode) {
 
   try {
     const res = await fetch(`/api/plans/${planId}`, { method: 'DELETE' });
-    const json = await res.json();
+    const json = await safeJson(res);
     if (json.success) {
       Swal.fire({
         icon: 'success',
@@ -2826,7 +3075,7 @@ async function submitReviewAction(action) {
       body: formData
     });
 
-    const json = await res.json();
+    const json = await safeJson(res);
     if (json.success) {
       const actionText = action === 'approve' ? 'อนุมัติ / เห็นชอบเรียบร้อย' : 'ตีกลับให้ครูแก้ไขเรียบร้อย';
       let extraHtml = `<span style="font-size: 0.88rem; color: #64748b;">${escapeHtml(json.message || '')}</span>`;
@@ -2857,8 +3106,9 @@ async function submitReviewAction(action) {
       });
       closeReviewModal();
       loadAdminPlans();
-      if (currentUser && currentUser.email && currentUser.role === 'teacher') {
+      if (currentUser && currentUser.email) {
         searchTeacherHistory(false);
+        triggerDuplicateCheck();
       }
     } else {
       Swal.fire({
@@ -2898,6 +3148,10 @@ function switchTab(tabId) {
 
   if (tabId === 'admin') {
     loadAdminPlans();
+  } else if (tabId === 'track' && currentUser && currentUser.email) {
+    searchTeacherHistory(false);
+  } else if (tabId === 'submit') {
+    triggerDuplicateCheck();
   }
 }
 
@@ -2906,10 +3160,10 @@ function getStatusBadge(status) {
     submitted: '<span class="badge badge-submitted"><i class="fa-solid fa-clock"></i> รอตรวจสอบ</span>',
     under_review: '<span class="badge badge-under_review"><i class="fa-solid fa-hourglass-half"></i> อยู่ระหว่างตรวจ</span>',
     approved: '<span class="badge badge-approved"><i class="fa-solid fa-check-circle"></i> อนุมัติแล้ว</span>',
-    revision_needed: '<span class="badge badge-revision_needed"><i class="fa-solid fa-triangle-exclamation"></i> ให้แก้ไข</span>',
+    revision_needed: '<span class="badge badge-revision_needed"><i class="fa-solid fa-triangle-exclamation"></i> ถูกตีกลับให้แก้ไข</span>',
     draft: '<span class="badge badge-draft"><i class="fa-solid fa-pen-ruler"></i> ฉบับร่าง</span>'
   };
-  return map[status] || `<span class="badge badge-draft">${status}</span>`;
+  return map[status] || `<span class="badge badge-draft">${escapeHtml(status)}</span>`;
 }
 
 function getStatusLabel(status) {
@@ -2917,7 +3171,7 @@ function getStatusLabel(status) {
     submitted: 'รอตรวจสอบ',
     under_review: 'อยู่ระหว่างตรวจสอบ',
     approved: 'อนุมัติแล้ว',
-    revision_needed: 'ต้องแก้ไข',
+    revision_needed: 'ถูกตีกลับให้แก้ไข',
     draft: 'ฉบับร่าง'
   };
   return map[status] || status;
@@ -3019,7 +3273,12 @@ function openRound2Modal(planId, subjectCode, subjectName) {
   const titleEl = document.getElementById('r2ModalPlanTitle');
   const planIdInput = document.getElementById('r2PlanId');
 
-  if (titleEl) titleEl.textContent = `${subjectCode} ${subjectName}`;
+  const cached = (window._planReasonCache && window._planReasonCache[planId])
+    || (window.adminPlansCache && window.adminPlansCache.find(x => x.id === planId));
+  const sCode = subjectCode || (cached ? cached.subject_code : '') || '';
+  const sName = subjectName || (cached ? cached.subject_name : '') || '';
+
+  if (titleEl) titleEl.textContent = `${sCode} ${sName}`.trim() || 'แผนการสอน';
   if (planIdInput) planIdInput.value = planId;
 
   const fileInput = document.getElementById('r2PdfFile');
@@ -3156,7 +3415,7 @@ async function submitRound2Quick() {
       method: 'POST',
       body: formData
     });
-    const json = await res.json();
+    const json = await safeJson(res);
     if (json.success) {
       Swal.fire({
         icon: 'success',
